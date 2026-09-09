@@ -1585,7 +1585,7 @@ wheels = [
 
 [[package]]
 name = "tempus-ddb"
-version = "0.4.0"
+version = "0.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "mcp" },
@@ -1601,6 +1601,9 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "ruff" },
 ]
+github-app = [
+    { name = "pyjwt", extra = ["crypto"] },
+]
 
 [package.metadata]
 requires-dist = [
@@ -1608,12 +1611,13 @@ requires-dist = [
     { name = "maturin", marker = "extra == 'dev'" },
     { name = "mcp", specifier = ">=1.0.0,<2.0.0" },
     { name = "pip-audit", marker = "extra == 'dev'" },
+    { name = "pyjwt", extras = ["crypto"], marker = "extra == 'github-app'", specifier = ">=2.10,<3" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-asyncio", marker = "extra == 'dev'" },
     { name = "python-dotenv", specifier = ">=1.0.0,<2.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.16.4" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["github-app", "dev"]
 
 [[package]]
 name = "tomli"

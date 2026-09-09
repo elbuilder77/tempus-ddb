@@ -103,6 +103,9 @@ bundles, rotation and revocation, unified mediated `ExecutorRuntime` (GitHub, HT
 
 ## What is implemented
 
+- [GitHub App executor mode](docs/github-app.md): installation authentication,
+  repository-scoped temporary tokens, and existing signed-permit enforcement for
+  issue and pull request creation. Requires operator registration and installation.
 - Stable machine contracts with explicit `schema_version` values (`.v1`).
 - Separate Ed25519 identities for the Tempus gate, requesting agent, and executor.
 - Immutable, gate-signed agent registration receipts. Registrations cannot be silently

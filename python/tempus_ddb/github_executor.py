@@ -60,6 +60,18 @@ class GitHubTransport(Protocol):
         """Execute one GitHub API request."""
 
 
+class GitHubTokenProvider(Protocol):
+    """Resolve credentials only for a validated, consumed intent."""
+
+    def token_for(self, resource: str, action_type: str) -> str:
+        """Return a credential bound to the configured installation."""
+
+
+class _RejectRedirects(request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise GitHubExecutorError("GitHub API redirects are not allowed")
+
+
 class UrllibGitHubTransport:
     """Minimal GitHub REST transport with no dependency outside the standard library."""
 
@@ -80,7 +92,8 @@ class UrllibGitHubTransport:
         )
         try:
             # The endpoint was validated above as absolute HTTPS with no credentials or query.
-            with request.urlopen(github_request, timeout=30) as response:  # nosec B310
+            opener = request.build_opener(_RejectRedirects())
+            with opener.open(github_request, timeout=30) as response:  # nosec B310
                 body = response.read().decode("utf-8")
                 parsed = json.loads(body) if body else {}
                 if not isinstance(parsed, dict):
@@ -110,15 +123,19 @@ class GitHubActionAdapter:
 
     def __init__(
         self,
-        token: str,
+        token: Optional[str] = None,
         api_url: str = "https://api.github.com",
         transport: Optional[GitHubTransport] = None,
+        token_provider: Optional[GitHubTokenProvider] = None,
     ):
-        if not token:
+        if token and token_provider is not None:
+            raise GitHubExecutorError("Configure only one GitHub credential source")
+        if not token and token_provider is None:
             raise GitHubExecutorError(
                 "GITHUB_TOKEN is required by the executor process"
             )
-        self._token = token
+        self._token = token or ""
+        self._token_provider = token_provider
         self._api_url = _validate_github_api_url(api_url)
         self._transport = transport or UrllibGitHubTransport()
 
@@ -139,9 +156,24 @@ class GitHubActionAdapter:
                 },
             )
 
+        try:
+            token = (
+                self._token_provider.token_for(resource, action_type)
+                if self._token_provider is not None
+                else self._token
+            )
+            if not token:
+                raise GitHubExecutorError("Empty credential")
+        except Exception:
+            # No action has been sent. Never include provider errors or secrets.
+            return ExecutionResult(
+                status="FAILED",
+                payload={"error_code": "TEMPUS_GITHUB_CREDENTIAL_REJECTED"},
+            )
+
         headers = {
             "Accept": "application/vnd.github+json",
-            "Authorization": "Bearer " + self._token,
+            "Authorization": "Bearer " + token,
             "Content-Type": "application/json",
             "User-Agent": f"tempus-ddb-github-executor/{__version__}",
             "X-GitHub-Api-Version": "2022-11-28",
@@ -263,10 +295,15 @@ class GitHubExecutorAdapter:
         api_url: str = "https://api.github.com",
         transport: Optional[GitHubTransport] = None,
         executor_pool_size: int = 8,
+        token_provider: Optional[GitHubTokenProvider] = None,
     ):
-        token = token or os.environ.get("GITHUB_TOKEN", "")
+        if token_provider is None:
+            token = token or os.environ.get("GITHUB_TOKEN", "")
         self._adapter = GitHubActionAdapter(
-            token=token, api_url=api_url, transport=transport
+            token=token or "",
+            api_url=api_url,
+            transport=transport,
+            token_provider=token_provider,
         )
         self._runtime = ExecutorRuntime(
             executor_db=executor_db,
@@ -312,6 +349,10 @@ def main() -> None:
     parser.add_argument("--tenant-id", required=True)
     parser.add_argument("--token-env", default="GITHUB_TOKEN")
     parser.add_argument("--api-url", default="https://api.github.com")
+    parser.add_argument("--app-client-id", help="GitHub App client ID (or App ID)")
+    parser.add_argument("--app-private-key", help="Path to the GitHub App RSA PEM key")
+    parser.add_argument("--installation-id", type=int)
+    parser.add_argument("--repository", help="Exact owner/repository for this executor")
     parser.add_argument(
         "--executor-pool-size",
         type=int,
@@ -320,8 +361,29 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    token = os.environ.get(args.token_env, "")
     try:
+        app_values = (
+            args.app_client_id,
+            args.app_private_key,
+            args.installation_id,
+            args.repository,
+        )
+        provider = None
+        if any(value is not None for value in app_values):
+            if not all(value is not None for value in app_values):
+                parser.error(
+                    "GitHub App mode requires all four App/installation/repository options"
+                )
+            from .github_app import GitHubAppCredentials
+
+            provider = GitHubAppCredentials(
+                args.app_client_id,
+                args.app_private_key,
+                args.installation_id,
+                args.repository,
+                api_url=args.api_url,
+            )
+        token = "" if provider is not None else os.environ.get(args.token_env, "")
         adapter = GitHubExecutorAdapter(
             args.executor_db,
             args.executor_keyfile,
@@ -330,6 +392,7 @@ def main() -> None:
             token=token,
             api_url=args.api_url,
             executor_pool_size=args.executor_pool_size,
+            token_provider=provider,
         )
         print(adapter.execute(_read_permit(args.permit)))
     except UnknownExecutionError as exc:
