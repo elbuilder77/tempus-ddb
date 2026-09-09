@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Packaged `quickstart` and `first-action` walkthroughs: scoped policy, persistent
+  local issue, signed execution evidence, and an explicit real-GitHub issue path.
+- `actions` history with agent/resource/date filters, separate recorded states
+  and trace integrity, and JSON output for automation.
+- A continuous installation, MCP connection, first-action and recovery guide.
+
+### Fixed
+- Recovery guidance now requires a fresh export from the restored Gate, an
+  independently trusted checkpoint and coordinated executor-state backup and
+  reconciliation; external JSON verification alone is not a database restore check.
+- `init` reports initialization instead of execution readiness. `doctor` now
+  fails when only the baseline policy is active, includes actionable next steps
+  and labels GitHub credential detection as a presence-only check.
+- Autonomous MCP tools honor `TEMPUS_DB_PATH` inside `TEMPUS_WORKSPACE`; `db`
+  remains accepted and is now optional. Missing databases produce a setup error.
+- The evidence demo labels recorded authorization/execution separately from
+  integrity, warns about untrusted altered values, and explains restoration.
+- The primary demo button retains contrast out of focus; anchor targets reserve
+  space for the header, and the guide prioritizes completing a first action.
+
 ## [0.5.0] - 2026-09-05
 
 ### Added

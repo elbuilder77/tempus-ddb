@@ -47,7 +47,8 @@ def test_cli_init_creates_files(tmp_path):
     assert code == 0
     assert (tmp_path / "keys.json").exists()
     assert (tmp_path / "tempus.db").exists()
-    assert "ready" in out.lower()
+    assert "initialized" in out.lower()
+    assert "ready" not in out.lower()
 
 
 def test_cli_keygen_is_machine_readable_and_refuses_overwrite(tmp_path):
@@ -272,8 +273,8 @@ def test_cli_phase3_doctor_conformance_policy_and_identity_lifecycle(tmp_path):
     assert code == 0, out + err
 
     code, out, err = run_cli(["doctor", "--json"], cwd=tmp_path)
-    assert code == 0, out + err
-    assert json.loads(out)["status"] == "PASS"
+    assert code == 1, out + err
+    assert json.loads(out)["readiness"] == "CONFIGURATION_PENDING"
 
     code, out, err = run_cli(["conformance", "--signer"], cwd=tmp_path)
     assert code == 0, out + err

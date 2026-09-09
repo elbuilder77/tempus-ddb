@@ -179,7 +179,31 @@ cd tempus-ddb
 pip install -e ".[dev]"
 ```
 
-## Bootstrap identities
+## Complete your first action
+
+Let an agent create an issue only in a repository you allow. Start with a local
+issue file to complete authorization, execution and verification without a
+GitHub credential:
+
+```bash
+tempus quickstart --directory tempus-first-action
+```
+
+This creates trial identities, installs a policy limited to one action, resource
+and executor, runs local checks, writes `issue.json` through the executor and
+saves a verified `result.json` with its action ID. Expected: **Authorization
+ALLOWED · Execution SUCCEEDED · Integrity VERIFIED**. No GitHub request is made.
+Existing trial directories are never overwritten.
+
+These commands are in this source revision. Until it is released, install this
+checkout with `python -m pip install -e .`; an older PyPI package may not include
+them. No `examples/` file is needed after installing the updated package.
+
+Continue with the [first GitHub issue recipe](docs/FIRST_ACTION.md),
+[MCP connection](cookbooks/mcp_cursor_claude_quickstart.md), or
+[recovery](docs/FIRST_ACTION.md#recover-without-repeating-an-effect).
+
+## Manual setup reference
 
 `tempus init` creates the local gate key and database, then records the gate as the
 signed delegation root. This is deployment-time bootstrap, not a human approval step
@@ -194,8 +218,6 @@ tempus register-agent --alias purchasing-agent --agent-keyfile agent.keys.json \
   --metadata '{"tenant_id":"acme"}'
 tempus register-agent --alias purchasing-executor --agent-keyfile executor.keys.json \
   --metadata '{"tenant_id":"acme"}'
-tempus doctor --json
-tempus conformance --signer
 ```
 
 The gate signer configuration is the global `--keyfile` and defaults to `keys.json`.
@@ -211,7 +233,15 @@ currency limits, and authorized executors.
 ```bash
 tempus install-policy --policy acme-github-policy.json
 tempus list-policies
+tempus doctor --json
+tempus conformance --signer
 ```
+
+Prepare the policy file with your resources and executor public key; the guided
+recipe creates it for you. `init` means initialized. `doctor` checks local
+configuration and requires an explicit workload policy; the built-in baseline
+is insufficient. `doctor --github` checks credential presence, not GitHub
+connectivity or permissions.
 
 Policy evaluation is deterministic and rejects unknown constraints, floating-point input,
 oversized input, tenant/resource/action mismatches, excessive TTL, disallowed executors,
@@ -219,18 +249,25 @@ and money metadata outside the configured currency or minor-unit ceiling.
 
 ## Checkpoints & Disaster Recovery
 
-Tempus allows generating cryptographically signed monotonic checkpoints and exporting hash-linked event streams without database downtime:
+Tempus can sign checkpoints over a tenant's Gate event stream. To verify a
+restored Gate, first export its own events against the latest independently
+retained checkpoint. Keep issuance and executor dispatch stopped during recovery:
 
 ```bash
-# 1. Create a signed monotonic checkpoint for a tenant
-tempus checkpoint create --tenant-id acme --out checkpoint-acme.json
-
-# 2. Export the incremental event stream
-tempus checkpoint export --tenant-id acme --from-seq 1 --out stream-acme.json
-
-# 3. Cryptographically verify stream integrity and rollback absence offline
-tempus checkpoint verify --checkpoint checkpoint-acme.json --stream stream-acme.json
+# Use the trusted checkpoint's first_sequence and total_events numeric values.
+tempus --db /recovery/gate.db --keyfile /secure/gate.keys.json checkpoint export \
+  --tenant-id acme --from-seq FIRST_SEQUENCE --limit TOTAL_EVENTS \
+  --out /recovery/events-from-restored-acme.json
+tempus --db /recovery/gate.db --keyfile /secure/gate.keys.json checkpoint verify \
+  --checkpoint /independent/checkpoint-acme-latest.json \
+  --stream /recovery/events-from-restored-acme.json
 ```
+
+Comparing two archived JSON files does not validate the restored database.
+Verification covers the checkpoint range only, and does not cover executor
+consumption state. Back up and reconcile every executor database together with
+the Gate; missing consumption rows can permit re-execution. Keep uncertain
+operations consumed and do not retry them automatically.
 
 See [docs/BACKUP_AND_DISASTER_RECOVERY.md](docs/BACKUP_AND_DISASTER_RECOVERY.md) for complete disaster recovery, hot backup, and reconciliation procedures.
 

@@ -66,9 +66,13 @@ def run_init(args):
                 "tempus-gate",
                 json.dumps({"can_delegate": True, "role": "gate"}),
             )
-        print("✓ Tempus DDB ready.")
+        print("✓ Tempus DDB initialized. Execution setup still needs checking.")
         print(f"  Keys:  {keyfile}")
         print(f"  DB:    {db_path}")
+        print(
+            "  Next: register agent/executor identities, install-policy, then doctor."
+        )
+        print("  Guided first action in a new directory: tempus quickstart")
     except Exception as e:
         print(f"✗ Failed to initialize database: {e}", file=sys.stderr)
         sys.exit(1)
@@ -589,8 +593,24 @@ def run_doctor(args):
     db_path, keyfile = _resolve_paths(args)
     checks = []
 
+    next_steps = {
+        "signer_config": "Run tempus init with the intended --db and --keyfile paths.",
+        "signer_permissions": "Restrict the signer file to its service account (chmod 600 on Unix).",
+        "signer_json": "Restore a valid signer configuration from your protected backup.",
+        "vault_cli": "Install the configured Vault CLI and authenticate the service account.",
+        "clock": "Synchronize the system clock before requesting a permit.",
+        "database": "Run tempus init with the intended --db and --keyfile paths, or restore the existing database.",
+        "gate_identity": "Run tempus init with the matching gate key to register its identity.",
+        "active_policy": "Register agent/executor identities, then run tempus install-policy --policy policy.json. For a separate guided trial, run tempus quickstart.",
+        "workload_policy": "Run tempus install-policy --policy policy.json with explicit resources, actions and executors; the baseline policy is not workload configuration.",
+        "github_executor_credentials": "Set GITHUB_TOKEN only in the executor environment; this check does not contact GitHub.",
+    }
+
     def add(name, status, detail):
-        checks.append({"name": name, "status": status, "detail": detail})
+        check = {"name": name, "status": status, "detail": detail}
+        if status == "FAIL":
+            check["next_step"] = next_steps[name]
+        checks.append(check)
 
     if os.path.isfile(keyfile) and os.access(keyfile, os.R_OK):
         add("signer_config", "PASS", f"readable: {keyfile}")
@@ -643,13 +663,21 @@ def run_doctor(args):
                 "PASS" if active else "FAIL",
                 f"active={len(active)}",
             )
+            configured = [
+                p for p in active if p.get("policy_version") != "tempus.baseline.v1"
+            ]
+            add(
+                "workload_policy",
+                "PASS" if configured else "FAIL",
+                f"explicit_active={len(configured)}; baseline policy alone is insufficient",
+            )
         except Exception as exc:
             add("database", "FAIL", str(exc))
     if args.github:
         add(
             "github_executor_credentials",
             "PASS" if os.environ.get("GITHUB_TOKEN") else "FAIL",
-            "GITHUB_TOKEN is set"
+            "GITHUB_TOKEN is set; validity, permissions and connectivity have NOT been checked"
             if os.environ.get("GITHUB_TOKEN")
             else "GITHUB_TOKEN is missing",
         )
@@ -660,6 +688,10 @@ def run_doctor(args):
         "status": overall,
         "version": __version__,
         "checks": checks,
+        "readiness": "CONFIGURATION_PENDING"
+        if overall == "FAIL"
+        else "LOCAL_CHECKS_PASSED",
+        "scope": "Local configuration only; executor connectivity and a first action are not verified.",
     }
     if args.json:
         print(json.dumps(report, indent=2))
@@ -667,6 +699,9 @@ def run_doctor(args):
         print(f"Tempus doctor: {overall}")
         for check in checks:
             print(f"[{check['status']}] {check['name']}: {check['detail']}")
+            if "next_step" in check:
+                print(f"  Next: {check['next_step']}")
+        print(report["scope"])
     if overall != "PASS":
         sys.exit(1)
 
@@ -697,6 +732,34 @@ def main():
 
     # init
     subparsers.add_parser("init", help="Initialize keys and database")
+
+    quickstart = subparsers.add_parser(
+        "quickstart", help="Set up and verify a first local action"
+    )
+    quickstart.add_argument("--directory", default="tempus-first-action")
+    quickstart.add_argument(
+        "--github-repository",
+        help="Prepare a GitHub issue trial for owner/repository instead of executing locally",
+    )
+    first = subparsers.add_parser(
+        "first-action", help="Execute the action prepared by quickstart once"
+    )
+    first.add_argument("--directory", default="tempus-first-action")
+    first.add_argument(
+        "--execute-github",
+        action="store_true",
+        help="Create one real issue using the executor's GITHUB_TOKEN",
+    )
+    actions = subparsers.add_parser(
+        "actions", help="Find action IDs and inspect recorded states"
+    )
+    actions.add_argument("--limit", type=int, default=20)
+    actions.add_argument("--agent", help="Exact agent public key")
+    actions.add_argument("--resource", help="Exact resource")
+    actions.add_argument(
+        "--since", help="ISO date/time (UTC when no timezone is given)"
+    )
+    actions.add_argument("--json", action="store_true")
 
     keygen_p = subparsers.add_parser(
         "keygen", help="Generate a workload Ed25519 keypair"
@@ -910,6 +973,17 @@ def main():
     try:
         if args.command == "init":
             run_init(args)
+        elif args.command in {"quickstart", "first-action"}:
+            from .onboarding import run_first_action, run_quickstart
+
+            if args.command == "quickstart":
+                run_quickstart(args)
+            else:
+                run_first_action(args)
+        elif args.command == "actions":
+            from .action_history import run_actions
+
+            run_actions(args)
         elif args.command == "keygen":
             run_keygen(args)
         elif args.command == "mcp" and getattr(args, "mcp_cmd", None) == "start":

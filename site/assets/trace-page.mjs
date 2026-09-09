@@ -12,13 +12,21 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function setSummary(trace) {
+function setSummary(trace, verificationStatus) {
   summary.replaceChildren();
+  const trust = document.createElement("p");
+  trust.className = verificationStatus === "INVALID" ? "evidence-warning" : "copy";
+  trust.textContent = verificationStatus === "INVALID"
+    ? "Altered evidence: these recorded values are untrusted. No new action was authorized or executed."
+    : verificationStatus === "PARTIAL"
+      ? "Evidence is only partially verified. Recorded values are not fully authenticated. No live action was executed."
+      : "Original synthetic evidence verified. These are recorded values, not a live GitHub action.";
+  summary.append(trust);
   const rows = [
-    ["Action", trace.action_id],
+    ["Requested action", "Create an issue: " + trace.intent.input.title],
     ["Requested resource", trace.intent.resource],
-    ["Decision", trace.authorization.decision],
-    ["Outcome", trace.execution.outcome.status],
+    ["Recorded authorization", trace.authorization.decision],
+    ["Recorded execution", trace.execution.outcome.status],
   ];
   for (const [label, value] of rows) {
     const row = document.createElement("div");
@@ -55,18 +63,25 @@ function renderResult(result, trace) {
     item.append(icon, copy);
     results.append(item);
   }
-  setSummary(trace);
+  setSummary(trace, result.status);
   json.textContent = JSON.stringify(trace, null, 2);
 }
 
 async function run(trace) {
+  originalButton.disabled = true;
+  tamperButton.disabled = true;
   status.textContent = "Running local checks…";
+  summary.textContent = "Checking evidence before displaying recorded values…";
   results.replaceChildren();
   try {
     renderResult(await verifyDemoTrace(trace), trace);
   } catch (error) {
     status.textContent = "INVALID — the browser could not process this fixture.";
+    summary.textContent = "Evidence could not be verified. Do not trust its recorded values.";
     results.textContent = error.message;
+  } finally {
+    originalButton.disabled = false;
+    tamperButton.disabled = false;
   }
 }
 
@@ -82,8 +97,9 @@ async function initialize() {
   }
 }
 
-originalButton.addEventListener("click", () => run(clone(originalTrace)));
+originalButton.addEventListener("click", () => { if (originalTrace) run(clone(originalTrace)); });
 tamperButton.addEventListener("click", () => {
+  if (!originalTrace) return;
   const altered = clone(originalTrace);
   altered.intent.resource = "github.com/example-org/production-admin";
   run(altered);
