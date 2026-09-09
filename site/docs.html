@@ -33,7 +33,7 @@
         <header class="page-hero">
           <p class="eyebrow">Documentation</p>
           <h1>Integration guide.</h1>
-          <p class="lede">Install v0.5.0, establish mediated executor boundaries, and verify action traces and checkpoints.</p>
+          <p class="lede">Create a first local issue, inspect its result, then connect a test repository. Each step produces evidence you can verify.</p>
           <div class="button-row"><a class="button primary" href="https://github.com/elbuilder77/tempus-ddb">GitHub Repo</a><a class="button" href="trace.html">Trace demo</a></div>
         </header>
       </div>
@@ -46,15 +46,30 @@
               <h2>Install the verified PyPI release.</h2>
               <p>Python 3.10+ is required. Tempus DDB is published to PyPI with <strong>Trusted Publishing</strong> and <strong>Sigstore attestation</strong> on every artifact — verify the provenance before you trust the binary, not just the package name.</p>
               <code>python -m pip install tempus-ddb</code>
-              <p>For development, or to inspect the attested source before installing:</p>
+              <p>The new guided commands below are in the current source revision and have not been released yet. From a checkout containing these changes, install with:</p>
               <code>git clone https://github.com/elbuilder77/tempus-ddb.git
 cd tempus-ddb
 python -m pip install -e ".[dev]"</code>
-              <p><a href="https://pypi.org/project/tempus-ddb/">View verified package on PyPI</a> · <a href="https://github.com/elbuilder77/tempus-ddb/releases">Platform-specific wheels & SBOM are available as GitHub Release assets</a>.</p>
+              <p>After installing the updated package, the walkthrough needs no checkout or examples directory. <a href="#integration">Continue to your first action</a>.</p>
+            </article>
+
+            <article class="doc-card" id="integration">
+              <p class="eyebrow">02 / First action</p>
+              <h2>Complete your first action</h2>
+              <p>Start in a new directory. This single command creates identities, installs a policy restricted to one action/resource/executor, checks configuration, writes a local issue through the executor and verifies the signed result.</p>
+              <code>tempus quickstart --directory tempus-first-action</code>
+              <p>Expected: <strong>Authorization ALLOWED · Execution SUCCEEDED · Integrity VERIFIED</strong>. Open <strong>tempus-first-action/issue.json</strong> for the issue and <strong>result.json</strong> for its action ID and result. This local example makes no GitHub request.</p>
+              <h3>Then create one real GitHub issue</h3>
+              <p>Use a test repository and configure GITHUB_TOKEN in the executor environment with Issues: write for that repository. First prepare the trial; this makes no external request:</p>
+              <code>tempus quickstart --directory github-trial --github-repository YOUR_OWNER/YOUR_TEST_REPO</code>
+              <p>Inspect github-trial/policy.json. The next command explicitly creates one real issue and prints its URL and verification command:</p>
+              <code>tempus first-action --directory github-trial --execute-github</code>
+              <p>These are operator-run development trials. Production requires separate agent, Gate and executor environments. Existing directories are preserved and an existing permit is never executed again by the walkthrough.</p>
+              <p><a href="https://github.com/elbuilder77/tempus-ddb/blob/main/docs/FIRST_ACTION.md">Full recipe and recovery</a> · <a href="https://github.com/elbuilder77/tempus-ddb/blob/main/cookbooks/mcp_cursor_claude_quickstart.md">Connect MCP using the generated mcp.json</a>.</p>
             </article>
 
             <article class="doc-card" id="flow">
-              <p class="eyebrow">02 / Basic flow</p>
+              <p class="eyebrow">03 / Basic flow</p>
               <h2>Request and execution flow</h2>
               <ol>
                 <li>The agent signs an exact <code>tempus.action-intent.v1</code> request.</li>
@@ -66,7 +81,7 @@ python -m pip install -e ".[dev]"</code>
             </article>
 
             <article class="doc-card" id="contracts">
-              <p class="eyebrow">03 / Stable contracts</p>
+              <p class="eyebrow">04 / Stable contracts</p>
               <h2>Stable schemas</h2>
               <table class="contract-table">
                 <thead><tr><th>Evidence</th><th>Schema</th></tr></thead>
@@ -85,43 +100,36 @@ python -m pip install -e ".[dev]"</code>
               <p>Read the <a href="https://github.com/elbuilder77/tempus-ddb/blob/main/COMPATIBILITY.md">compatibility policy</a> before changing a deployed integration.</p>
             </article>
 
-            <article class="doc-card" id="integration">
-              <p class="eyebrow">04 / Integration</p>
-              <h2>Executor integration</h2>
-              <p>The unified <code>ExecutorRuntime</code> and packaged adapters (GitHub, HTTP/Webhooks, Slack, and Pluggable Payments) verify permit binding, tenant, expiry and single consumption, keeping downstream credentials outside the agent's payload.</p>
-              <code>tempus init
-tempus keygen --output agent.keys.json
-tempus keygen --output executor.keys.json
-tempus doctor --json
-tempus conformance --signer</code>
-              <p>Run <a href="https://github.com/elbuilder77/tempus-ddb/blob/main/examples/commercial_demo.py">examples/commercial_demo.py</a> to test direct bypass rejection, single-use consumption, replay protection, and trace verification locally:</p>
-              <code>python examples/commercial_demo.py</code>
-              <p>Explore framework recipes in <a href="https://github.com/elbuilder77/tempus-ddb/tree/main/cookbooks">cookbooks/</a> for <strong>LangChain</strong>, <strong>CrewAI</strong>, and <strong>Claude/Cursor MCP</strong>.</p>
-            </article>
+
 
             <article class="doc-card" id="audit">
               <p class="eyebrow">05 / Trace inspection</p>
               <h2>Inspect and verify records</h2>
-              <code>tempus trace --action-id &lt;action-id&gt;
-tempus verify-trace --action-id &lt;action-id&gt;
-tempus list-agents
-tempus list-policies
-tempus identity-events</code>
+              <p>Enter the trial directory. Recover IDs from the action history or result.json, then verify the selected action:</p>
+              <code>cd tempus-first-action
+tempus --keyfile gate.keys.json actions
+tempus --keyfile gate.keys.json verify-trace --action-id &lt;action-id&gt;
+tempus --keyfile gate.keys.json trace --action-id &lt;action-id&gt;</code>
+              <p>Filter history with --resource, --agent or --since; use --json for automation. A recorded ALLOWED decision, a recorded SUCCEEDED outcome and VERIFIED evidence answer different questions.</p>
+              <h3>If something goes wrong</h3>
+              <ul>
+                <li><strong>Configuration pending:</strong> register identities and install a workload policy before doctor. A baseline policy is insufficient. doctor --github checks credential presence only.</li>
+                <li><strong>BLOCKED:</strong> inspect permit.json reason codes and the policy; the guided executor was not called.</li>
+                <li><strong>Expired:</strong> check executor state before requesting a new permit. Never edit an old permit.</li>
+                <li><strong>UNKNOWN or missing receipt:</strong> an effect may exist. Reconcile the executor and GitHub before another request; never automatically retry.</li>
+                <li><strong>INVALID:</strong> preserve evidence and investigate. Recorded authorization/execution values are untrusted.</li>
+              </ul>
               <p>The interactive <a href="trace.html">trace demo</a> verifies a synthetic browser fixture. It is not connected to a Tempus database, and it does not replace <code>tempus verify-trace</code> for a real action.</p>
             </article>
 
             <article class="doc-card" id="checkpoints">
               <p class="eyebrow">06 / Durability & DR</p>
               <h2>Checkpoints & Disaster Recovery</h2>
-              <p>Generate signed external checkpoints and export hash-linked event streams without database downtime to detect rollbacks and whole-database tampering:</p>
-              <code># 1. Create a signed monotonic checkpoint for a tenant
-tempus checkpoint create --tenant-id acme --out checkpoint-acme.json
-
-# 2. Export incremental event stream
-tempus checkpoint export --tenant-id acme --from-seq 1 --out stream-acme.json
-
-# 3. Verify stream integrity and rollback absence offline
-tempus checkpoint verify --checkpoint checkpoint-acme.json --stream stream-acme.json</code>
+              <p>Restore the Gate and every executor database as a coordinated set, with issuance and dispatch stopped. Retrieve the latest independently trusted checkpoint, then export fresh events from the restored Gate:</p>
+              <code># Replace range placeholders with values from the trusted checkpoint.
+tempus --db /recovery/gate.db --keyfile /secure/gate.keys.json checkpoint export --tenant-id acme --from-seq FIRST_SEQUENCE --limit TOTAL_EVENTS --out /recovery/restored-events.json
+tempus --db /recovery/gate.db --keyfile /secure/gate.keys.json checkpoint verify --checkpoint /independent/checkpoint-acme-latest.json --stream /recovery/restored-events.json</code>
+              <p>Verifying two compatible external files does not prove the restored database is current. This check covers the checkpoint's event range, not later events or the executor's consumed permits. Reconcile executor state and signed outcomes separately; missing consumption or UNKNOWN results must never trigger automatic replay.</p>
               <p>See <a href="https://github.com/elbuilder77/tempus-ddb/blob/main/docs/BACKUP_AND_DISASTER_RECOVERY.md">docs/BACKUP_AND_DISASTER_RECOVERY.md</a> for full procedures.</p>
             </article>
 
@@ -134,7 +142,7 @@ tempus checkpoint verify --checkpoint checkpoint-acme.json --stream stream-acme.
           </div>
           <aside class="doc-aside" aria-label="On this page">
             <strong>On this page</strong>
-            <a href="#install">Install</a><a href="#flow">B2A flow</a><a href="#contracts">Contracts</a><a href="#integration">Integration</a><a href="#audit">Audit</a><a href="#checkpoints">Checkpoints & DR</a><a href="#boundary">Security boundary</a>
+            <a href="#install">Install</a><a href="#integration">First action</a><a href="#audit">Find a result & recover</a><a href="#flow">How it works</a><a href="#contracts">Contracts</a><a href="#checkpoints">Checkpoints & DR</a><a href="#boundary">Security boundary</a>
           </aside>
         </div>
       </section>

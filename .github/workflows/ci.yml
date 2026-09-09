@@ -73,7 +73,7 @@ jobs:
       - name: Install Python test dependencies
         run: |
           python -m pip install --upgrade pip "setuptools>=83.0.0"
-          python -m pip install -e .[dev]
+          python -m pip install -e .[dev,github-app]
           python -m pip install bandit pip-audit
 
       - name: Run Bandit

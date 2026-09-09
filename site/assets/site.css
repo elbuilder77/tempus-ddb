@@ -23,6 +23,7 @@
 
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
+[id] { scroll-margin-top: 120px; }
 body {
   min-width: 320px;
   margin: 0;
@@ -144,7 +145,12 @@ section { border-top: 1px solid var(--line); padding: clamp(4.4rem, 8vw, 7.4rem)
 .metric span { color: var(--muted); }
 .metric strong { min-width: 0; overflow-wrap: anywhere; font-size: 0.88rem; text-align: right; }
 .trace-controls { display: flex; flex-wrap: wrap; gap: 0.65rem; margin-top: 1.1rem; }
-.trace-controls .button { background: transparent; }
+.trace-controls .button:disabled { cursor: wait; opacity: 0.65; }
+.evidence-warning { padding: 1rem; border: 1px solid var(--danger); border-radius: 8px; color: var(--danger); background: #2b141a; }
+.trace-page .page-hero { max-width: 940px; padding: 2.5rem 0 2rem; }
+.trace-page .page-hero h1 { font-size: clamp(2.1rem, 4.5vw, 3.8rem); }
+.trace-page section { padding-top: 1.5rem; padding-bottom: 1.5rem; }
+.trace-page .trace-intro { margin-top: 0; }
 .trace-results { display: grid; gap: 0.7rem; margin-top: 1.35rem; }
 .check { display: grid; grid-template-columns: 1.1rem 1fr; gap: 0.7rem; align-items: start; padding: 0.85rem 0; border-bottom: 1px solid var(--line); }
 .check:last-child { border-bottom: 0; }
