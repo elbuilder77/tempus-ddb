@@ -1,9 +1,10 @@
-# Connect Tempus over MCP
+# Connect Tempus over MCP (OpenClaw, Hermes, Cursor, Claude, Windsurf, OpenHands)
 
-Install a package containing `tempus quickstart` (until released, install this
-checkout with `python -m pip install -e .`). MCP uses the same database as the CLI,
-inside an explicitly configured directory. Connecting it does not configure an
-external executor or a requesting-agent signer.
+This guide details connecting Tempus DDB as an autonomous Model Context Protocol (MCP) server across leading agent runtimes—including **OpenClaw**, **Hermes Agent (Nous Research)**, **Cursor**, **Claude Desktop**, **Windsurf**, **OpenHands**, and custom MCP hosts.
+
+For comprehensive architectural specifications and security boundaries, see the [DevOps MCP Product Blueprint](../docs/blueprints/devops-mcp/product-blueprint.md) and [Architecture Blueprint](../docs/blueprints/devops-mcp/architecture-blueprint.md).
+
+Install a package containing `tempus quickstart` (or install from checkout with `python -m pip install -e .`). MCP uses the same database as the CLI, inside an explicitly configured directory. Connecting it exposes read/verification operations to the agent while strictly isolating signing keys and external credentials.
 
 ## 1. Check a connection with no action history
 

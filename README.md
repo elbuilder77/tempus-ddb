@@ -39,6 +39,8 @@ pip install tempus-ddb
 >
 > [Project site](https://elbuilder77.github.io/tempus-ddb/) ·
 > [Integration guide](https://elbuilder77.github.io/tempus-ddb/docs.html) ·
+> [Architecture Blueprints](docs/blueprints/README.md) ·
+> [Cookbooks](cookbooks/README.md) ·
 > [Interactive trace demo](https://elbuilder77.github.io/tempus-ddb/trace.html) ·
 > [Roadmap](ROADMAP.md) · [Security](SECURITY.md) ·
 > [Threat model](THREAT_MODEL.md) · [Contributing](CONTRIBUTING.md)
@@ -103,6 +105,9 @@ bundles, rotation and revocation, unified mediated `ExecutorRuntime` (GitHub, HT
 
 ## What is implemented
 
+- **[Enterprise Architecture & Product Blueprints](docs/blueprints/README.md)**: Production implementation guides for
+  [DevOps over MCP (OpenClaw, Hermes Agent, Cursor, Claude, Windsurf)](docs/blueprints/devops-mcp/product-blueprint.md)
+  and [Financial Toll Gates for Multi-Agent Crews (CrewAI, LangGraph, AutoGen)](docs/blueprints/payments-crewai/product-blueprint.md).
 - [GitHub App executor mode](docs/github-app.md): installation authentication,
   repository-scoped temporary tokens, and existing signed-permit enforcement for
   issue and pull request creation. Requires operator registration and installation.
