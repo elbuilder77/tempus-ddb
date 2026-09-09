@@ -2,7 +2,12 @@
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-09-09
+
 ### Added
+- **Installation-scoped GitHub App Authentication**: Added `GitHubAppCredentials`
+  issuing short-lived, repository- and action-scoped installation access tokens
+  signed via RSA private key with automatic caching and zero-leak credential isolation.
 - Packaged `quickstart` and `first-action` walkthroughs: scoped policy, persistent
   local issue, signed execution evidence, and an explicit real-GitHub issue path.
 - `actions` history with agent/resource/date filters, separate recorded states
@@ -22,6 +27,8 @@
   integrity, warns about untrusted altered values, and explains restoration.
 - The primary demo button retains contrast out of focus; anchor targets reserve
   space for the header, and the guide prioritizes completing a first action.
+- Transport redirect blocking (`_RejectRedirects`) in GitHub executor to prevent
+  credential leakage to third-party endpoints.
 
 ## [0.5.0] - 2026-09-05
 

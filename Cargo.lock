@@ -959,7 +959,7 @@ dependencies = [
 
 [[package]]
 name = "tempus-ddb"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "clap",
  "ed25519-dalek",
