@@ -1,89 +1,63 @@
-# Connect Tempus over MCP (OpenClaw, Hermes, Cursor, Claude, Windsurf, OpenHands)
+# 🔌 Tempus DDB MCP Quickstart: Claude Desktop, Cursor & Windsurf
 
-This guide details connecting Tempus DDB as an autonomous Model Context Protocol (MCP) server across leading agent runtimes—including **OpenClaw**, **Hermes Agent (Nous Research)**, **Cursor**, **Claude Desktop**, **Windsurf**, **OpenHands**, and custom MCP hosts.
+Tempus DDB exposes a native **Model Context Protocol (MCP)** server. In **Autonomous Mode**, it enforces the B2A toll so LLMs can only request signed permits and verify execution receipts without exposing admin or destructive tools.
 
-For comprehensive architectural specifications and security boundaries, see the [DevOps MCP Product Blueprint](../docs/blueprints/devops-mcp/product-blueprint.md) and [Architecture Blueprint](../docs/blueprints/devops-mcp/architecture-blueprint.md).
+---
 
-Install a package containing `tempus quickstart` (or install from checkout with `python -m pip install -e .`). MCP uses the same database as the CLI, inside an explicitly configured directory. Connecting it exposes read/verification operations to the agent while strictly isolating signing keys and external credentials.
+## 1. Quick Setup for Claude Desktop
 
-## 1. Check a connection with no action history
+Add Tempus to your `claude_desktop_config.json`:
 
-Create a new directory, enter it and run `tempus init`. This initializes the Gate
-and database. Configure your MCP client's server JSON with absolute paths:
+* **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+* **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+* **Linux:** `~/.config/Claude/claude_desktop_config.json`
 
 ```json
 {
   "mcpServers": {
     "tempus": {
-      "command": "C:/path/to/venv/Scripts/python.exe",
-      "args": ["-m", "tempus_ddb.cli", "mcp", "start"],
+      "command": "tempus",
+      "args": ["mcp", "start"],
       "env": {
-        "TEMPUS_WORKSPACE": "C:/path/to/your/initialized-directory",
-        "TEMPUS_DB_PATH": "tempus.db",
-        "TEMPUS_GATE_KEYFILE": "keys.json",
-        "TEMPUS_MODE": "autonomous"
+        "TEMPUS_MODE": "autonomous",
+        "TEMPUS_GATE_KEYFILE": "/path/to/keys.json",
+        "TEMPUS_DB_PATH": "/path/to/tempus.db"
       }
     }
   }
 }
 ```
 
-Use your installed Python executable (`/absolute/path/.venv/bin/python` on Unix).
-`TEMPUS_WORKSPACE` fixes the server's path boundary independently of the client's
-working directory. Database and Gate key paths resolve inside that directory;
-paths escaping it are rejected. `TEMPUS_DB_PATH` is the default for autonomous
-tools; `db` is optional. No agent/executor private key belongs in the MCP
-configuration or chat.
+---
 
-After adding the server entry and reconnecting, ask: **“Call tempus_list_agents
-with no arguments and show the registered Gate.”** Expected: `status: success`
-and the Gate in `agents`. This works before any action exists. A missing database
-returns an initialization error instead of silently creating a different one.
+## 2. Quick Setup for Cursor IDE
 
-## 2. Produce and inspect a known action
+In Cursor:
+1. Open **Cursor Settings** ➔ **Features** ➔ **MCP**.
+2. Click **+ Add New MCP Server**.
+3. Fill in:
+   * **Name:** `tempus-ddb`
+   * **Type:** `command`
+   * **Command:** `tempus mcp start`
 
-In an operator terminal, run:
+---
 
-```bash
-tempus quickstart --directory tempus-first-action
-```
+## 3. Autonomous MCP Tools Exposed to the LLM
 
-This creates a separate trial, registers agent and executor, installs an explicit
-policy, signs a request, consumes the permit, writes a local issue file and
-commits the signed outcome. It prints an action ID and verification command and
-persists the evidence. No GitHub call is made.
+When connected in autonomous mode (`TEMPUS_MODE=autonomous`), Claude or Cursor will only have access to safe, audited machine tools:
 
-Import the generated `tempus-first-action/mcp.json` server entry into your client.
-It contains your Python executable, workspace and matching Gate key filename.
-Reconnect, then ask:
+| Tool Name | Action & Guard |
+|---|---|
+| `tempus_request_action_signed` | Verify signed intent and obtain a short-lived permit (`ALLOWED` / `BLOCKED`) |
+| `tempus_commit_outcome_signed` | Consume permit with an executor-signed outcome |
+| `tempus_get_trace` | Inspect action evidence & authorization decisions |
+| `tempus_verify_trace` | Cryptographically verify SHA-256 hashes and Ed25519 signatures |
+| `tempus_list_agents` | Read registered identities (read-only) |
+| `tempus_list_policies` | Read active and retired policy bundles (read-only) |
 
-> Call tempus_verify_trace with action_id set to the ID printed by quickstart
-> (also saved in result.json). Explain recorded authorization, execution and
-> evidence integrity separately.
+---
 
-Expected: `VERIFIED`, phase `COMPLETED`. Do not ask for “the latest action” without
-an ID; discover IDs with `tempus actions` against the trial database.
+## 4. Testing the MCP Connection
 
-## 3. Connect signing and execution
-
-Follow the complete [GitHub issue recipe](../docs/FIRST_ACTION.md). The operator
-command connects the local agent signer to the Gate, passes its permit to the
-credential-holding executor and commits its signed outcome. This is a guided
-development environment with separate key files on one machine; production
-requires isolated service accounts/processes for these roles.
-
-For a production agent, its host signs the exact intent locally and sends
-`intent`, `agent_id` and `agent_signature` to `tempus_request_action_signed`.
-The executor verifies/consumes the permit and sends its signed outcome through
-`tempus_commit_outcome_signed`. The model receives public identities, permits and
-results, never private keys or `GITHUB_TOKEN`. Installing the MCP entry alone
-does not implement this host/executor connection.
-
-Autonomous tools include signed request/commit, trace lookup/verification, agent
-registry, policies and identity events. Administrative, destructive and local-key
-signing tools remain disabled by default.
-
-If connection fails, check the Python executable, workspace, database and Gate
-key; run `tempus list-agents` with those same paths. A `doctor` failure about
-workload policy is a setup issue, not a failed MCP transport connection. See
-[recovery](../docs/FIRST_ACTION.md#recover-without-repeating-an-effect).
+In Claude Desktop or Cursor Chat, try asking:
+> *"Inspect the Tempus DDB audit trace for the latest action ID and verify its cryptographic integrity."*

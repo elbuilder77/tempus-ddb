@@ -12,8 +12,7 @@ from ._tempus_ddb import TempusDDB, gen_keys
 load_dotenv()
 
 # ── Global configuration ──────────────────────────────────────────────
-SANDBOX_DIR = os.path.realpath(os.environ.get("TEMPUS_WORKSPACE", os.getcwd()))
-TEMPUS_DB_PATH = os.environ.get("TEMPUS_DB_PATH", "tempus.db")
+SANDBOX_DIR = os.path.realpath(os.getcwd())
 TEMPUS_MODE = os.environ.get("TEMPUS_MODE", "autonomous")
 TEMPUS_GATE_KEYFILE = os.environ.get("TEMPUS_GATE_KEYFILE", "keys.json")
 TEMPUS_ADMIN_TOOLS = os.environ.get("TEMPUS_ADMIN_TOOLS", "0") == "1"
@@ -351,16 +350,6 @@ async def list_tools() -> list[Tool]:
                 inputSchema={"type": "object", "properties": {}, "required": []},
             )
         )
-    for tool in tools:
-        properties = tool.inputSchema.get("properties", {})
-        if "db" in properties and tool.name not in ADMIN_TOOL_NAMES | LEGACY_TOOL_NAMES:
-            properties["db"]["default"] = TEMPUS_DB_PATH
-            properties["db"]["description"] = (
-                "Database inside TEMPUS_WORKSPACE; defaults to TEMPUS_DB_PATH."
-            )
-            tool.inputSchema["required"] = [
-                field for field in tool.inputSchema.get("required", []) if field != "db"
-            ]
     return tools
 
 
@@ -398,11 +387,7 @@ def _gate_keyfile() -> str:
 
 
 def _gate_db(arguments: dict) -> TempusDDB:
-    db_path = validate_path(arguments.get("db", TEMPUS_DB_PATH))
-    if not os.path.isfile(db_path):
-        raise ValueError(
-            "Configured database does not exist. Initialize it with tempus init before connecting MCP."
-        )
+    db_path = validate_path(arguments.get("db", "tempus.db"))
     return TempusDDB(db_path, _gate_keyfile())
 
 
@@ -657,8 +642,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             ]
 
         elif name == "tempus_list_agents":
-            db_path = validate_path(arguments.get("db", TEMPUS_DB_PATH))
-            db = _gate_db(arguments)
+            db_path = validate_path(arguments.get("db", "tempus.db"))
+            db = TempusDDB(db_path, _gate_keyfile())
             output = db.list_agents()
             return [
                 TextContent(

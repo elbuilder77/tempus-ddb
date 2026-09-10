@@ -1,6 +1,6 @@
 [package]
 name = "tempus-ddb"
-version = "0.5.1"
+version = "0.5.0"
 description = "Local-first B2A security gate with tamper-evident execution receipts"
 license = "MIT"
 repository = "https://github.com/elbuilder77/tempus-ddb"

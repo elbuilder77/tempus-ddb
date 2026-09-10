@@ -8,9 +8,9 @@ Practical, copy-paste recipes for integrating Tempus DDB B2A security gates into
 
 | Recipe | Framework / Environment | Description |
 |---|---|---|
-| [**OpenClaw, Hermes, Claude & Cursor MCP Guide**](mcp_cursor_claude_quickstart.md) | **OpenClaw**, **Hermes Agent**, **Claude Desktop**, **Cursor**, **Windsurf**, **OpenHands** | Connect Tempus DDB as an autonomous Model Context Protocol (MCP) server in 2 minutes. |
-| [**CrewAI Financial Gate**](crewai_action_gate.py) | **CrewAI** / Multi-Agent Teams | Multi-agent delegation where executor agents only disburse funds when presented with a single-use permit. |
-| [**LangChain & LangGraph Guard**](langchain_agent_guard.py) | **LangChain** / **LangGraph** | Enforce zero-trust tool execution gates around sensitive actions (database writes, payouts, API calls). |
+| [**LangChain & LangGraph Guard**](langchain_agent_guard.py) | LangChain / LangGraph | Enforce zero-trust tool execution gates around sensitive actions (database writes, payouts, API calls). |
+| [**CrewAI Financial Gate**](crewai_action_gate.py) | CrewAI / Multi-Agent Teams | Multi-agent delegation where executor agents only act when presented with a single-use gate permit. |
+| [**Claude & Cursor MCP Guide**](mcp_cursor_claude_quickstart.md) | Claude Desktop / Cursor / Windsurf | Connect Tempus DDB as an autonomous Model Context Protocol server in 2 minutes. |
 
 ---
 
