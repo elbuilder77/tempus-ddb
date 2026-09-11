@@ -1,76 +1,50 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#08110d">
-    <meta name="description" content="Inspect a small, synthetic Tempus DDB trace in your browser.">
-    <meta property="og:title" content="Trace demo · Tempus DDB">
-    <meta property="og:description" content="Inspect a non-production trace fixture and see what changes when its evidence is altered.">
-    <meta property="og:type" content="website">
-    <meta property="og:url" content="https://elbuilder77.github.io/tempus-ddb/trace.html">
-    <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="Trace demo · Tempus DDB">
-    <meta name="twitter:description" content="Inspect a non-production trace fixture and see what changes when its evidence is altered.">
-    <link rel="stylesheet" href="assets/site.css">
-    <script type="module" src="assets/trace-page.mjs"></script>
-    <title>Trace demo · Tempus DDB</title>
-  </head>
-  <body>
-    <a class="skip-link" href="#main-content">Skip to content</a>
-    <header class="site-header">
-      <div class="shell">
-        <a class="brand" href="./"><img class="brand-logo" src="assets/tempus-logo-mineral.png" alt="Tempus — The Decision Database"></a>
-        <nav class="site-nav" aria-label="Main navigation">
-          <a href="./">Overview</a>
-          <a href="docs.html">Guide</a>
-          <a href="trace.html" aria-current="page">Sample trace</a>
-          <a class="nav-source" href="https://github.com/elbuilder77/tempus-ddb">GitHub</a>
-        </nav>
-      </div>
-    </header>
-    <main id="main-content">
-      <div class="shell">
-        <header class="page-hero">
-          <p class="eyebrow">Synthetic fixture</p>
-          <h1>Trace verification demo.</h1>
-          <p class="lede">Checks hashes, record links and Ed25519 signatures in the browser. No Tempus runtime is connected.</p>
-        </header>
-      </div>
-
-      <section>
-        <div class="shell trace-intro">
-          <section class="trace-panel" aria-labelledby="trace-summary-title">
-            <p class="eyebrow">Trace summary</p>
-            <h2 id="trace-summary-title">Four linked records</h2>
-            <div class="trace-summary" id="trace-summary" aria-live="polite"><p class="copy">Loading the demonstration fixture…</p></div>
-          </section>
-          <aside class="notice"><strong>About this sample</strong><br>It checks its embedded hashes, signatures and links. For a real trace, use <code>tempus verify-trace</code>.</aside>
-        </div>
-      </section>
-
-      <section>
-        <div class="shell trace-intro">
-          <section class="trace-panel" aria-labelledby="verification-title">
-            <p class="eyebrow">Verification</p>
-            <h2 id="verification-title">Verification result</h2>
-            <p class="copy" id="verification-status" role="status">Preparing checks…</p>
-            <div class="trace-controls">
-              <button class="button primary" type="button" id="verify-original">Verify original fixture</button>
-              <button class="button quiet" type="button" id="tamper-fixture">Alter the requested resource</button>
-            </div>
-            <div class="trace-results" id="trace-results" aria-live="polite"></div>
-          </section>
-          <aside class="trace-panel"><p class="eyebrow">Tamper test</p><h2>Alter one field</h2><p class="copy">The change affects only the in-memory fixture. Its intent hash and agent signature no longer verify.</p><p class="copy">If Ed25519 is unavailable, signature checks are reported as unsupported.</p></aside>
-        </div>
-      </section>
-
-      <section>
-        <div class="shell">
-          <details class="trace-json"><summary>View the current in-memory fixture</summary><pre id="trace-json" aria-label="Current trace fixture"></pre></details>
-        </div>
-      </section>
-    </main>
-    <footer class="shell site-footer"><span>Synthetic browser fixture · No secrets · No remote runtime</span><span><a href="docs.html">Documentation</a> · <a href="https://github.com/elbuilder77/tempus-ddb/blob/main/THREAT_MODEL.md">Threat model</a></span></footer>
-  </body>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0a1018">
+  <meta name="description" content="Verify a synthetic Tempus DDB trace in your browser. Alter signed evidence and inspect hash, record-link and Ed25519 signature checks.">
+  <link rel="canonical" href="https://elbuilder77.github.io/tempus-ddb/trace.html">
+  <meta property="og:title" content="Trace playground · Tempus DDB">
+  <meta property="og:description" content="Verify a synthetic Tempus DDB trace in your browser. Alter signed evidence and inspect hash, record-link and Ed25519 signature checks.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://elbuilder77.github.io/tempus-ddb/trace.html">
+  <meta property="og:image" content="https://elbuilder77.github.io/tempus-ddb/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Trace playground · Tempus DDB">
+  <meta name="twitter:description" content="Verify a synthetic Tempus DDB trace in your browser. Alter signed evidence and inspect hash, record-link and Ed25519 signature checks.">
+  <meta name="twitter:image" content="https://elbuilder77.github.io/tempus-ddb/og.png">
+  <link rel="icon" type="image/png" href="assets/logo.png">
+  <link rel="stylesheet" href="assets/site.css">
+  <script type="module" src="assets/site.mjs"></script>
+  <script type="module" src="assets/trace-page.mjs"></script>
+  <title>Trace playground · Tempus DDB</title>
+</head>
+<body class="page-trace">
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <header class="site-header">
+    <div class="shell header-inner">
+      <a class="brand" href="./" aria-label="Tempus DDB home"><img src="assets/tempus-logo-mineral.png" alt="Tempus — The Decision Database" width="1024" height="318"></a>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="main-nav" hidden>Menu <span aria-hidden="true">☰</span></button>
+      <nav class="site-nav" id="main-nav" aria-label="Main navigation"><a href="./">Overview</a><a href="docs.html">Documentation</a><a href="trace.html" aria-current="page">Trace playground</a><a class="nav-source" href="https://github.com/elbuilder77/tempus-ddb">GitHub <span aria-hidden="true">↗</span></a></nav>
+    </div>
+  </header>
+  <main id="main-content"><div class="shell"><header class="page-hero compact"><p class="eyebrow">Interactive / Synthetic fixture</p><h1>Trust the evidence.<br><em>Test it yourself.</em></h1><p class="lede">Verify a signed sample, alter a field, and see which checks fail. Everything runs locally in your browser.</p></header>
+<noscript><div class="notice">Enable JavaScript to run the verifier. You can still <a href="data/demo-trace.json">download the sample JSON</a> or <a href="docs.html#audit">use the CLI</a>.</div></noscript>
+<div class="playground-layout">
+  <section class="trace-panel control-panel" aria-labelledby="trace-summary-title"><p class="eyebrow">01 / Sample action</p><h2 id="trace-summary-title">Four linked records.</h2><div id="trace-summary" class="trace-summary"><p class="copy">Loading the demonstration fixture…</p></div>
+  <div class="experiment-controls"><label for="tamper-target">Choose a field to alter</label><select id="tamper-target" disabled><option value="resource">Requested resource</option><option value="decision">Authorization decision</option><option value="outcome">Execution outcome</option></select><p class="small">The signature stays unchanged. Only the selected field changes.</p><div class="trace-controls"><button class="button danger-button" type="button" id="tamper-fixture" disabled>Alter &amp; verify</button><button class="button" type="button" id="verify-original" disabled>Restore original</button></div><button class="button" id="retry-fixture" type="button" hidden>Retry loading sample</button><p id="experiment-status" class="experiment-status" role="status">Original sample selected.</p></div>
+  <div class="sample-note"><strong>A demonstration, not a live account.</strong><p>This fixture checks embedded hashes, public-key signatures and record links. No external action is executed. For runtime evidence, use <a href="docs.html#audit">tempus verify-trace</a>.</p><a href="data/demo-trace.json" download>Download original sample ↓</a></div>
+  </section>
+  <section class="trace-panel verification-panel" aria-labelledby="verification-title"><div class="panel-heading"><div><p class="eyebrow">02 / Verification</p><h2 id="verification-title">Evidence checks.</h2></div><span id="result-badge" class="badge neutral">LOADING</span></div><p id="verification-status" class="verification-status" role="status">Preparing checks…</p><p class="small" id="check-count"></p><div id="trace-results" class="trace-results" aria-busy="true"></div></section>
+</div>
+<details class="trace-json"><summary>Inspect the current sample JSON</summary><pre id="trace-json" tabindex="0" aria-label="Current trace fixture">Waiting for sample…</pre></details>
+<div class="trace-help"><div><h3>What is being verified?</h3><p>Record binding, SHA-256 hashes and Ed25519 signatures. Changing a bound value makes the original signature inconsistent with the current evidence.</p></div><div><h3>What if my browser lacks Ed25519?</h3><p>Supported hashes and record links are still checked. The result is PARTIAL when only signature support is missing; detected mismatches remain INVALID.</p></div></div>
+</div></main>
+  <footer class="site-footer"><div class="shell footer-grid"><div><a class="footer-brand" href="./">Tempus DDB</a><p>Authorization before action.<br>Evidence after execution.</p><span class="small">Open source · MIT · v0.5.0 beta</span></div><nav aria-label="Resources"><strong>Build</strong><a href="docs.html">Documentation</a><a href="trace.html">Trace playground</a><a href="https://github.com/elbuilder77/tempus-ddb/tree/main/cookbooks">Cookbooks</a><a href="https://pypi.org/project/tempus-ddb/">Python package</a></nav><nav aria-label="Project"><strong>Project</strong><a href="https://github.com/elbuilder77/tempus-ddb">Source code</a><a href="https://github.com/elbuilder77/tempus-ddb/blob/main/ROADMAP.md">Roadmap</a><a href="https://github.com/elbuilder77/tempus-ddb/blob/main/THREAT_MODEL.md">Threat model</a><a href="https://github.com/elbuilder77/tempus-ddb/blob/main/SECURITY.md">Report a vulnerability</a></nav></div><div class="shell footer-bottom"><span>Python 3.10+ · Rust native extension · MCP</span><a href="#main-content">Back to top ↑</a></div></footer>
+  <p class="sr-only" id="copy-status" role="status"></p>
+</body>
 </html>

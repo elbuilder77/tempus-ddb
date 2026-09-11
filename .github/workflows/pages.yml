@@ -5,24 +5,29 @@ on:
     branches: [main]
     paths:
       - "site/**"
+      - "assets/logo.png"
+      - "README.md"
+      - "scripts/validate_site.mjs"
+      - ".github/workflows/pages.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "assets/logo.png"
+      - "README.md"
       - "scripts/validate_site.mjs"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  validate:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -32,15 +37,28 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Validate static site
-        run: node scripts/validate_site.mjs
-      - uses: actions/configure-pages@v5
       - name: Assemble Pages artifact
         run: |
           mkdir -p site/assets
           cp assets/logo.png site/assets/logo.png
+      - name: Validate static site
+        run: node scripts/validate_site.mjs
       - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
         with:
           path: site
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: validate
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/configure-pages@v5
       - id: deployment
         uses: actions/deploy-pages@v4

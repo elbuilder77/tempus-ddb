@@ -98,7 +98,11 @@ export async function verifyDemoTrace(trace, cryptoImpl = globalThis.crypto) {
       const receiptValid = await verifyEd25519(receipt.gate_id, hexToBytes(receipt.receipt_id), receipt.gate_signature, cryptoImpl);
       receiptValid ? pass("Receipt signature", "The gate signed the execution receipt identifier.") : fail("Receipt signature", "The gate signature does not verify for this receipt.");
     } catch (error) {
-      warn("Ed25519 signatures", `Signature verification is unavailable in this browser: ${error.message}`);
+      if (error.name === "NotSupportedError") {
+        warn("Ed25519 signatures", "This browser does not support Ed25519. Hash and binding checks still ran.");
+      } else {
+        fail("Signature data", "A signature or public key is malformed or could not be verified.");
+      }
     }
   }
 
