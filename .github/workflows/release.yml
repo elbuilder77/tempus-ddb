@@ -98,7 +98,7 @@ jobs:
           --version "${{ env.RELEASE_TAG }}"
           --output "sbom/tempus-ddb-${{ env.RELEASE_TAG }}.spdx.json"
       - name: Attest release provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/*
       - name: Attest release SBOM
