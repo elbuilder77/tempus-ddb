@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.2] - 2026-09-12
+
+### Security
+- **Delegation Chain & Trusted Root Verification (Finding 1)**: Added `trusted_roots` table with single-root constraint; enforce recursive delegation chain checks ensuring all registered identities trace to an established root.
+- **Signed Policy Activation & Strict Fallback (Finding 2)**: Added `active_policy_attestations` table storing cryptographic attestations over active policies; retired tenant policies fail closed instead of falling back to unconstrained wildcards; SSRF protection and destination domain allowlisting in `http_executor`.
+- **Segregation of Duties & Role Enforcement (Finding 3)**: Prohibit proposing agents from executing their own permits (`executor_id != agent_id`); reject proposer roles from executor duty; enforce executor tenant scope matching.
+- **Durability & Replay Defense Across Gate/Executor (Findings 4 & 6)**: Upgraded SQLite persistence to `PRAGMA synchronous = FULL;` across gate and executors; executors cross-verify revocation and consumption state against Gate DB before effectuating actions.
+- **Financial Policy Beneficiary Validation (Finding 5)**: Enforce `allowed_beneficiaries` pattern matching in both policy evaluation and payment execution.
+- **Untrusted Signer Rejection in Checkpoint Verification (Finding 7)**: Checkpoint stream verifier requires trusted public key and rejects checkpoints signed by arbitrary keys (`ERR_UNTRUSTED_SIGNER`).
+- **Atomic State and Stream Mutations (Finding 8)**: Wrapped policy installations, authorizations, and outcome commits in immediate atomic SQLite transactions to eliminate race conditions between mutation and audit event logging.
+- **Workflow Hardening (Finding 9)**: Pinned all GitHub Actions to immutable commit SHAs; added automated wheel testing and `cargo test` gates prior to release publication.
+- **Windows CP1252 Compatibility**: Replaced all console and comment non-ASCII symbols with clean ASCII characters to prevent encoding crashes on Windows consoles.
+
 ## [0.5.0] - 2026-09-05
 
 ### Added

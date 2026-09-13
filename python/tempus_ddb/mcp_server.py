@@ -11,7 +11,7 @@ from ._tempus_ddb import TempusDDB, gen_keys
 
 load_dotenv()
 
-# ── Global configuration ──────────────────────────────────────────────
+# -- Global configuration ----------------------------------------------
 SANDBOX_DIR = os.path.realpath(os.getcwd())
 TEMPUS_MODE = os.environ.get("TEMPUS_MODE", "autonomous")
 TEMPUS_GATE_KEYFILE = os.environ.get("TEMPUS_GATE_KEYFILE", "keys.json")
@@ -43,7 +43,7 @@ LOCAL_KEYFILE_TOOL_NAMES = {
 }
 
 
-# ── Path-traversal guard ──────────────────────────────────────────────
+# -- Path-traversal guard ----------------------------------------------
 def validate_path(path: str) -> str:
     """Resolve *path* and ensure it stays inside SANDBOX_DIR."""
     resolved = os.path.realpath(os.path.join(SANDBOX_DIR, path))
@@ -54,7 +54,7 @@ def validate_path(path: str) -> str:
     return resolved
 
 
-# ── Input validation helpers ─────────────────────────────────────
+# -- Input validation helpers -------------------------------------
 def validate_json_string(value: str, field_name: str) -> None:
     """Ensure *value* is a valid JSON string."""
     try:
@@ -63,7 +63,7 @@ def validate_json_string(value: str, field_name: str) -> None:
         raise ValueError(f"'{field_name}' must be a valid JSON string: {exc}")
 
 
-# ── MCP server setup ──────────────────────────────────────────────────
+# -- MCP server setup --------------------------------------------------
 app = Server("tempus-ddb-mcp")
 
 

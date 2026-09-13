@@ -42,17 +42,17 @@ def run_init(args):
     db_path, keyfile = _resolve_paths(args)
 
     if os.path.exists(keyfile):
-        print(f"[{keyfile}] already exists — skipping key generation.")
+        print(f"[{keyfile}] already exists - skipping key generation.")
     else:
         try:
             gen_keys(keyfile)
-            print(f"✓ Generated new Ed25519 keys → {keyfile}")
+            print(f"[OK] Generated new Ed25519 keys -> {keyfile}")
         except Exception as e:
-            print(f"✗ Failed to generate keys: {e}", file=sys.stderr)
+            print(f"[ERROR] Failed to generate keys: {e}", file=sys.stderr)
             sys.exit(1)
 
     if os.path.exists(db_path):
-        print(f"[{db_path}] already exists — verifying schema...")
+        print(f"[{db_path}] already exists - verifying schema...")
     else:
         print(f"Initializing new ledger at {db_path}...")
 
@@ -66,11 +66,11 @@ def run_init(args):
                 "tempus-gate",
                 json.dumps({"can_delegate": True, "role": "gate"}),
             )
-        print("✓ Tempus DDB ready.")
+        print("[OK] Tempus DDB ready.")
         print(f"  Keys:  {keyfile}")
         print(f"  DB:    {db_path}")
     except Exception as e:
-        print(f"✗ Failed to initialize database: {e}", file=sys.stderr)
+        print(f"[ERROR] Failed to initialize database: {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -78,7 +78,7 @@ def run_keygen(args):
     """Generate a workload keypair for an agent, executor, or gate."""
     if os.path.exists(args.output):
         print(
-            f"✗ Refusing to overwrite existing key file: {args.output}", file=sys.stderr
+            f"[ERROR] Refusing to overwrite existing key file: {args.output}", file=sys.stderr
         )
         sys.exit(1)
     try:
@@ -95,7 +95,7 @@ def run_keygen(args):
             )
         )
     except Exception as exc:
-        print(f"✗ Key generation failed: {exc}", file=sys.stderr)
+        print(f"[ERROR] Key generation failed: {exc}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -103,7 +103,7 @@ def run_verify(args):
     db_path, keyfile = _resolve_paths(args)
 
     if not os.path.exists(db_path):
-        print("✗ No database found. Run 'tempus init' first.", file=sys.stderr)
+        print("[ERROR] No database found. Run 'tempus init' first.", file=sys.stderr)
         sys.exit(1)
 
     try:
@@ -111,14 +111,14 @@ def run_verify(args):
         result = db.validate()
         result_str = str(result).lower()
         if "invalid" in result_str or "error" in result_str or "mismatch" in result_str:
-            print("✗ Ledger validation FAILED")
+            print("[ERROR] Ledger validation FAILED")
             print(result)
             sys.exit(1)
         else:
-            print("✓ Ledger validation successful.")
+            print("[OK] Ledger validation successful.")
             print(result)
     except Exception as e:
-        print(f"✗ Validation failed: {e}", file=sys.stderr)
+        print(f"[ERROR] Validation failed: {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -132,19 +132,19 @@ def run_status(args):
     if os.path.exists(keyfile):
         try:
             size = os.path.getsize(keyfile)
-            print(f"✓ Keys file: {keyfile} ({size} bytes)")
+            print(f"[OK] Keys file: {keyfile} ({size} bytes)")
         except Exception:
-            print(f"✓ Keys file: {keyfile}")
+            print(f"[OK] Keys file: {keyfile}")
     else:
-        print("✗ Keys file: not found (run 'tempus init')")
+        print("[ERROR] Keys file: not found (run 'tempus init')")
 
     # Database
     if os.path.exists(db_path):
         try:
             size = os.path.getsize(db_path)
-            print(f"✓ Database: {db_path} ({size} bytes)")
+            print(f"[OK] Database: {db_path} ({size} bytes)")
         except Exception:
-            print(f"✓ Database: {db_path}")
+            print(f"[OK] Database: {db_path}")
 
         try:
             db = TempusDDB(
@@ -154,10 +154,10 @@ def run_status(args):
             val_str = str(validation).lower()
 
             if "invalid" in val_str or "error" in val_str or "mismatch" in val_str:
-                print("✗ Chain integrity: INVALID")
+                print("[ERROR] Chain integrity: INVALID")
                 print(f"  Details: {validation}")
             else:
-                print("✓ Chain integrity: VALID")
+                print("[OK] Chain integrity: VALID")
 
             # Show record count
             try:
@@ -182,9 +182,9 @@ def run_status(args):
                 print(f"  Latest hash: unavailable ({exc})")
 
         except Exception as e:
-            print(f"✗ Could not validate database: {e}")
+            print(f"[ERROR] Could not validate database: {e}")
     else:
-        print("✗ Database: not found (run 'tempus init' and record at least once)")
+        print("[ERROR] Database: not found (run 'tempus init' and record at least once)")
 
     print("\nNext steps if needed:")
     print("  tempus init     # to initialize")
@@ -196,13 +196,13 @@ def run_record(args):
     db_path, keyfile = _resolve_paths(args)
 
     if not os.path.exists(keyfile):
-        print("✗ No keys found. Run 'tempus init' first.", file=sys.stderr)
+        print("[ERROR] No keys found. Run 'tempus init' first.", file=sys.stderr)
         sys.exit(1)
 
     if not os.path.exists(db_path) and not args.genesis:
         # For non-genesis, db should exist
         print(
-            "✗ Database not found. You must create the first (genesis) record first.",
+            "[ERROR] Database not found. You must create the first (genesis) record first.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -217,7 +217,7 @@ def run_record(args):
             json.loads(payload)
         except json.JSONDecodeError:
             print(
-                "✗ --payload must be valid JSON (or path to JSON file)", file=sys.stderr
+                "[ERROR] --payload must be valid JSON (or path to JSON file)", file=sys.stderr
             )
             sys.exit(1)
 
@@ -230,7 +230,7 @@ def run_record(args):
             json.loads(rules)
         except json.JSONDecodeError:
             print(
-                "✗ --rules must be valid JSON (or path to JSON file)", file=sys.stderr
+                "[ERROR] --rules must be valid JSON (or path to JSON file)", file=sys.stderr
             )
             sys.exit(1)
 
@@ -238,18 +238,18 @@ def run_record(args):
 
         # The core auto-links non-genesis records to the latest record.
         result = db.record(payload, rules, genesis=args.genesis)
-        print("✓ Decision recorded successfully.")
+        print("[OK] Decision recorded successfully.")
         print(result)
     except Exception as e:
         err_msg = str(e)
         if "genesis" in err_msg.lower() or "empty" in err_msg.lower():
-            print(f"✗ Chaining error: {err_msg}", file=sys.stderr)
+            print(f"[ERROR] Chaining error: {err_msg}", file=sys.stderr)
             print(
                 "  Tip: Use --genesis only for the first record. Later records auto-link to the latest record.",
                 file=sys.stderr,
             )
         else:
-            print(f"✗ Record failed: {err_msg}", file=sys.stderr)
+            print(f"[ERROR] Record failed: {err_msg}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -258,7 +258,7 @@ def run_export(args):
     db_path, keyfile = _resolve_paths(args)
 
     if not os.path.exists(db_path):
-        print("✗ No database found. Run 'tempus init' first.", file=sys.stderr)
+        print("[ERROR] No database found. Run 'tempus init' first.", file=sys.stderr)
         sys.exit(1)
 
     try:
@@ -266,7 +266,7 @@ def run_export(args):
         result = db.export()
         print(result)
     except Exception as e:
-        print(f"✗ Export failed: {e}", file=sys.stderr)
+        print(f"[ERROR] Export failed: {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -275,7 +275,7 @@ def run_list(args):
     db_path, keyfile = _resolve_paths(args)
 
     if not os.path.exists(db_path):
-        print("✗ No database found. Run 'tempus init' first.", file=sys.stderr)
+        print("[ERROR] No database found. Run 'tempus init' first.", file=sys.stderr)
         sys.exit(1)
 
     try:
@@ -288,7 +288,7 @@ def run_list(args):
         except (json.JSONDecodeError, TypeError):
             print(result)
     except Exception as e:
-        print(f"✗ List failed: {e}", file=sys.stderr)
+        print(f"[ERROR] List failed: {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -297,7 +297,7 @@ def run_count(args):
     db_path, keyfile = _resolve_paths(args)
 
     if not os.path.exists(db_path):
-        print("✗ No database found. Run 'tempus init' first.", file=sys.stderr)
+        print("[ERROR] No database found. Run 'tempus init' first.", file=sys.stderr)
         sys.exit(1)
 
     try:
@@ -305,7 +305,7 @@ def run_count(args):
         count = db.count()
         print(json.dumps({"total_decisions": count}))
     except Exception as e:
-        print(f"✗ Count failed: {e}", file=sys.stderr)
+        print(f"[ERROR] Count failed: {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -314,7 +314,7 @@ def run_register_agent(args):
     db_path, keyfile = _resolve_paths(args)
 
     if not os.path.exists(db_path):
-        print("✗ No database found. Run 'tempus init' first.", file=sys.stderr)
+        print("[ERROR] No database found. Run 'tempus init' first.", file=sys.stderr)
         sys.exit(1)
 
     try:
@@ -323,23 +323,23 @@ def run_register_agent(args):
         if not public_key:
             agent_keyfile = getattr(args, "agent_keyfile", None) or keyfile
             if not os.path.exists(agent_keyfile):
-                print(f"✗ Key file not found: {agent_keyfile}", file=sys.stderr)
+                print(f"[ERROR] Key file not found: {agent_keyfile}", file=sys.stderr)
                 sys.exit(1)
             with open(agent_keyfile, encoding="utf-8") as f:
                 key_data = json.load(f)
             public_key = key_data.get("public_key")
             if not public_key:
-                print("✗ Key file does not contain 'public_key'.", file=sys.stderr)
+                print("[ERROR] Key file does not contain 'public_key'.", file=sys.stderr)
                 sys.exit(1)
 
         db = TempusDDB(db_path, keyfile if os.path.exists(keyfile) else DEFAULT_KEYFILE)
         metadata = getattr(args, "metadata", "{}") or "{}"
         result = db.register_agent(public_key, args.alias, metadata)
         parsed = json.loads(result)
-        print(f"✓ Agent '{args.alias}' registered.")
+        print(f"[OK] Agent '{args.alias}' registered.")
         print(f"  Public key: {parsed.get('public_key', public_key)}")
     except Exception as e:
-        print(f"✗ Registration failed: {e}", file=sys.stderr)
+        print(f"[ERROR] Registration failed: {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -348,7 +348,7 @@ def run_list_agents(args):
     db_path, keyfile = _resolve_paths(args)
 
     if not os.path.exists(db_path):
-        print("✗ No database found. Run 'tempus init' first.", file=sys.stderr)
+        print("[ERROR] No database found. Run 'tempus init' first.", file=sys.stderr)
         sys.exit(1)
 
     try:
@@ -360,7 +360,7 @@ def run_list_agents(args):
         else:
             print(json.dumps(agents, indent=2))
     except Exception as e:
-        print(f"✗ List agents failed: {e}", file=sys.stderr)
+        print(f"[ERROR] List agents failed: {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -370,7 +370,7 @@ def run_whoami(args):
 
     if not os.path.exists(keyfile):
         print(
-            f"✗ Key file not found: {keyfile}. Run 'tempus init' first.",
+            f"[ERROR] Key file not found: {keyfile}. Run 'tempus init' first.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -384,10 +384,10 @@ def run_whoami(args):
         if alias:
             print(f"Alias:      {alias}")
         else:
-            print("Alias:      (not registered — use 'tempus register-agent')")
+            print("Alias:      (not registered - use 'tempus register-agent')")
         print(f"Key File:   {parsed.get('keyfile')}")
     except Exception as e:
-        print(f"✗ Whoami failed: {e}", file=sys.stderr)
+        print(f"[ERROR] Whoami failed: {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -400,7 +400,7 @@ def run_request_action(args):
         result = db.request_action(intent, args.agent_keyfile, args.ttl_seconds)
         print(json.dumps(json.loads(result), indent=2))
     except Exception as exc:
-        print(f"✗ Authorization request failed: {exc}", file=sys.stderr)
+        print(f"[ERROR] Authorization request failed: {exc}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -417,7 +417,7 @@ def run_commit_outcome(args):
         )
         print(json.dumps(json.loads(result), indent=2))
     except Exception as exc:
-        print(f"✗ Outcome commit failed: {exc}", file=sys.stderr)
+        print(f"[ERROR] Outcome commit failed: {exc}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -435,7 +435,7 @@ def run_trace(args, *, verify=False):
             sys.exit(2)
     except Exception as exc:
         print(
-            f"✗ Trace {'verification' if verify else 'lookup'} failed: {exc}",
+            f"[ERROR] Trace {'verification' if verify else 'lookup'} failed: {exc}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -452,7 +452,7 @@ def run_install_policy(args):
         spec = _load_json_argument(args.policy, "policy")
         print(json.dumps(json.loads(_gate(args).install_policy(spec)), indent=2))
     except Exception as exc:
-        print(f"✗ Policy installation failed: {exc}", file=sys.stderr)
+        print(f"[ERROR] Policy installation failed: {exc}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -460,7 +460,7 @@ def run_list_policies(args):
     try:
         print(json.dumps(json.loads(_gate(args).list_policies()), indent=2))
     except Exception as exc:
-        print(f"✗ Policy listing failed: {exc}", file=sys.stderr)
+        print(f"[ERROR] Policy listing failed: {exc}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -471,7 +471,7 @@ def run_rotate_agent(args):
         result = _gate(args).rotate_agent(args.current_public_key, new_public_key)
         print(json.dumps(json.loads(result), indent=2))
     except Exception as exc:
-        print(f"✗ Identity rotation failed: {exc}", file=sys.stderr)
+        print(f"[ERROR] Identity rotation failed: {exc}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -480,7 +480,7 @@ def run_revoke_agent(args):
         result = _gate(args).revoke_agent(args.public_key, args.reason)
         print(json.dumps(json.loads(result), indent=2))
     except Exception as exc:
-        print(f"✗ Identity revocation failed: {exc}", file=sys.stderr)
+        print(f"[ERROR] Identity revocation failed: {exc}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -489,7 +489,7 @@ def run_identity_events(args):
         result = _gate(args).list_identity_events()
         print(json.dumps(json.loads(result), indent=2))
     except Exception as exc:
-        print(f"✗ Identity event listing failed: {exc}", file=sys.stderr)
+        print(f"[ERROR] Identity event listing failed: {exc}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -537,11 +537,11 @@ def run_checkpoint(args):
             if args.out:
                 with open(args.out, "w", encoding="utf-8") as f:
                     f.write(chk_str)
-                print(f"✓ Checkpoint created → {args.out}")
+                print(f"[OK] Checkpoint created -> {args.out}")
             else:
                 print(json.dumps(json.loads(chk_str), indent=2))
         except Exception as exc:
-            print(f"✗ Checkpoint creation failed: {exc}", file=sys.stderr)
+            print(f"[ERROR] Checkpoint creation failed: {exc}", file=sys.stderr)
             sys.exit(1)
     elif cmd == "export":
         try:
@@ -552,11 +552,11 @@ def run_checkpoint(args):
             if args.out:
                 with open(args.out, "w", encoding="utf-8") as f:
                     f.write(stream_str)
-                print(f"✓ Event stream exported → {args.out}")
+                print(f"[OK] Event stream exported -> {args.out}")
             else:
                 print(json.dumps(json.loads(stream_str), indent=2))
         except Exception as exc:
-            print(f"✗ Event stream export failed: {exc}", file=sys.stderr)
+            print(f"[ERROR] Event stream export failed: {exc}", file=sys.stderr)
             sys.exit(1)
     elif cmd == "verify":
         try:
@@ -577,7 +577,7 @@ def run_checkpoint(args):
             if result.get("status") != "VERIFIED":
                 sys.exit(2)
         except Exception as exc:
-            print(f"✗ Checkpoint verification failed: {exc}", file=sys.stderr)
+            print(f"[ERROR] Checkpoint verification failed: {exc}", file=sys.stderr)
             sys.exit(1)
     else:
         print("Invalid checkpoint subcommand", file=sys.stderr)
@@ -678,7 +678,7 @@ def run_version():
 def main():
     parser = argparse.ArgumentParser(
         prog="tempus",
-        description="Tempus DDB — The B2A security gate for autonomous agent actions",
+        description="Tempus DDB - The B2A security gate for autonomous agent actions",
     )
     parser.add_argument("--version", action="store_true", help="Show version and exit")
     # Global arguments available to all subcommands

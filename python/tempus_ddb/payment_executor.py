@@ -76,11 +76,23 @@ class PaymentActionAdapter:
         self,
         secret_key: Optional[str] = None,
         transport: Optional[PaymentTransport] = None,
+        allowed_beneficiaries: Optional[Set[str]] = None,
     ):
         self._secret_key = secret_key or os.environ.get(
             "PAYMENT_SECRET_KEY", "default-isolated-payment-key"
         )
         self._transport = transport or MockPaymentTransport()
+        allowed_env = os.environ.get("PAYMENT_ALLOWED_BENEFICIARIES")
+        if allowed_beneficiaries is not None:
+            self._allowed_beneficiaries = {
+                b.strip().lower() for b in allowed_beneficiaries if b.strip()
+            }
+        elif allowed_env:
+            self._allowed_beneficiaries = {
+                b.strip().lower() for b in allowed_env.split(",") if b.strip()
+            }
+        else:
+            self._allowed_beneficiaries = None
 
     @property
     def supported_actions(self) -> Set[str]:
@@ -102,6 +114,19 @@ class PaymentActionAdapter:
             raise PaymentExecutorError(
                 "Missing 'amount', 'asset', or 'beneficiary' in money metadata"
             )
+
+        if self._allowed_beneficiaries is not None:
+            b_norm = beneficiary.strip().lower()
+            allowed = any(
+                b_norm == ab
+                or (ab.endswith("*") and b_norm.startswith(ab[:-1]))
+                or ab == "*"
+                for ab in self._allowed_beneficiaries
+            )
+            if not allowed:
+                raise PaymentExecutorError(
+                    f"Beneficiary '{beneficiary}' is not authorized by payment executor policy"
+                )
 
         input_data = intent.get("input", {})
 
@@ -128,14 +153,21 @@ class PaymentExecutorAdapter:
         secret_key: Optional[str] = None,
         transport: Optional[PaymentTransport] = None,
         executor_pool_size: int = 8,
+        allowed_beneficiaries: Optional[Set[str]] = None,
+        gate_db: Optional[str] = None,
     ):
-        self._adapter = PaymentActionAdapter(secret_key=secret_key, transport=transport)
+        self._adapter = PaymentActionAdapter(
+            secret_key=secret_key,
+            transport=transport,
+            allowed_beneficiaries=allowed_beneficiaries,
+        )
         self._runtime = ExecutorRuntime(
             executor_db=executor_db,
             executor_keyfile=executor_keyfile,
             trusted_gate_id=trusted_gate_id,
             trusted_tenant_id=trusted_tenant_id,
             executor_pool_size=executor_pool_size,
+            gate_db=gate_db,
         )
 
     def execute(self, permit_json: str) -> str:

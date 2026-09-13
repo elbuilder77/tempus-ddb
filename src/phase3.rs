@@ -19,6 +19,7 @@ const POLICY_FIELDS: &[&str] = &[
     "max_input_bytes",
     "allowed_currencies",
     "max_money_amount_minor",
+    "allowed_beneficiaries",
 ];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -126,6 +127,16 @@ pub(crate) fn initialize_schema(conn: &Connection) -> Result<(), String> {
             revoked_at INTEGER NOT NULL,
             reason TEXT NOT NULL,
             identity_event_id TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS active_policy_attestations (
+            tenant_id TEXT PRIMARY KEY,
+            policy_version TEXT NOT NULL,
+            policy_digest TEXT NOT NULL,
+            activated_at INTEGER NOT NULL,
+            signer_public_key TEXT NOT NULL,
+            signature TEXT NOT NULL,
+            attestation_json TEXT NOT NULL
         );",
     )
     .map_err(|e| format!("Failed to initialize Phase 3 schema: {e}"))?;
@@ -165,6 +176,43 @@ pub(crate) fn ensure_default_policy(
     issued_at: u64,
 ) -> Result<Value, String> {
     if let Some(existing) = policy_by_version(conn, DEFAULT_POLICY_VERSION)? {
+        let is_attested: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM active_policy_attestations WHERE tenant_id = '*' AND policy_version = ?1)",
+                [DEFAULT_POLICY_VERSION],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if !is_attested {
+            let policy_digest = required_policy_string(&existing, "policy_digest")?;
+            let attestation_body = json!({
+                "schema_version": "tempus.active-policy-attestation.v1",
+                "tenant_id": "*",
+                "policy_version": DEFAULT_POLICY_VERSION,
+                "policy_digest": policy_digest,
+                "activated_at": issued_at,
+                "signer": signer.identity().to_json(),
+            });
+            let canonical_attestation = crate::b2a::canonicalize(&attestation_body)?;
+            let attestation_id = crate::b2a::sha256_hex(canonical_attestation.as_bytes());
+            let attestation_sig = signer.sign(
+                &hex::decode(&attestation_id)
+                    .map_err(|e| format!("Invalid attestation digest: {e}"))?,
+            )?;
+            let _ = conn.execute(
+                "INSERT OR REPLACE INTO active_policy_attestations
+                 (tenant_id, policy_version, policy_digest, activated_at, signer_public_key, signature, attestation_json)
+                 VALUES ('*', ?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    DEFAULT_POLICY_VERSION,
+                    policy_digest,
+                    issued_at,
+                    signer.identity().public_key,
+                    attestation_sig,
+                    canonical_attestation,
+                ],
+            );
+        }
         return verify_policy_bundle(&existing, None).map(|_| existing);
     }
     let spec = json!({
@@ -217,34 +265,91 @@ pub(crate) fn install_policy(
             "TEMPUS_POLICY_VERSION_CONFLICT: '{policy_version}' already identifies different bytes"
         ));
     }
-    conn.execute(
-        "UPDATE policy_bundles SET retired_at = ?1
-         WHERE tenant_id = ?2 AND retired_at IS NULL",
-        params![issued_at, tenant_id],
-    )
-    .map_err(|e| format!("Failed to retire previous policy: {e}"))?;
-    conn.execute(
-        "INSERT INTO policy_bundles
-         (policy_version, tenant_id, policy_digest, issued_at, bundle_json)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![
-            policy_version,
-            tenant_id,
-            policy_digest,
-            issued_at,
-            bundle_json
-        ],
-    )
-    .map_err(|e| format!("Failed to install policy: {e}"))?;
 
-    crate::events::record_event(
-        conn,
-        &tenant_id,
-        "policy.published",
-        &policy_digest,
-        &bundle_json,
-        issued_at,
+    let attestation_body = json!({
+        "schema_version": "tempus.active-policy-attestation.v1",
+        "tenant_id": tenant_id,
+        "policy_version": policy_version,
+        "policy_digest": policy_digest,
+        "activated_at": issued_at,
+        "signer": signer.identity().to_json(),
+    });
+    let canonical_attestation = crate::b2a::canonicalize(&attestation_body)?;
+    let attestation_id = crate::b2a::sha256_hex(canonical_attestation.as_bytes());
+    let attestation_sig = signer.sign(
+        &hex::decode(&attestation_id).map_err(|e| format!("Invalid attestation digest: {e}"))?,
     )?;
+
+    let manage_tx = conn.is_autocommit();
+    if manage_tx {
+        conn.execute_batch("BEGIN IMMEDIATE")
+            .map_err(|e| format!("Failed to begin policy installation transaction: {e}"))?;
+    }
+
+    let install_result = (|| -> Result<(), String> {
+        conn.execute(
+            "UPDATE policy_bundles SET retired_at = ?1
+             WHERE tenant_id = ?2 AND retired_at IS NULL",
+            params![issued_at, tenant_id],
+        )
+        .map_err(|e| format!("Failed to retire previous policy: {e}"))?;
+
+        conn.execute(
+            "INSERT INTO policy_bundles
+             (policy_version, tenant_id, policy_digest, issued_at, bundle_json)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                policy_version,
+                tenant_id,
+                policy_digest,
+                issued_at,
+                bundle_json
+            ],
+        )
+        .map_err(|e| format!("Failed to install policy: {e}"))?;
+
+        conn.execute(
+            "INSERT OR REPLACE INTO active_policy_attestations
+             (tenant_id, policy_version, policy_digest, activated_at, signer_public_key, signature, attestation_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                tenant_id,
+                policy_version,
+                policy_digest,
+                issued_at,
+                signer.identity().public_key,
+                attestation_sig,
+                canonical_attestation,
+            ],
+        )
+        .map_err(|e| format!("Failed to record active policy attestation: {e}"))?;
+
+        crate::events::record_event(
+            conn,
+            &tenant_id,
+            "policy.published",
+            &policy_digest,
+            &bundle_json,
+            issued_at,
+        )?;
+
+        Ok(())
+    })();
+
+    match install_result {
+        Ok(()) => {
+            if manage_tx {
+                conn.execute_batch("COMMIT")
+                    .map_err(|e| format!("Failed to commit policy installation: {e}"))?;
+            }
+        }
+        Err(err) => {
+            if manage_tx {
+                let _ = conn.execute_batch("ROLLBACK");
+            }
+            return Err(err);
+        }
+    }
 
     Ok(bundle)
 }
@@ -256,22 +361,111 @@ pub(crate) fn active_policy(
     now: u64,
 ) -> Result<Value, String> {
     ensure_default_policy(conn, signer, now)?;
-    let bundle_json = conn
+
+    // 1. Check for signed active policy attestation for this specific tenant
+    let row = conn
         .query_row(
-            "SELECT bundle_json FROM policy_bundles
-             WHERE retired_at IS NULL AND tenant_id IN (?1, '*')
-             ORDER BY CASE WHEN tenant_id = ?1 THEN 0 ELSE 1 END, issued_at DESC
-             LIMIT 1",
+            "SELECT a.policy_version, a.policy_digest, a.signature, a.attestation_json, b.bundle_json
+             FROM active_policy_attestations a
+             JOIN policy_bundles b ON b.policy_version = a.policy_version
+             WHERE a.tenant_id = ?1 AND b.retired_at IS NULL",
             [tenant_id],
-            |row| row.get::<_, String>(0),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            },
         )
         .optional()
-        .map_err(|e| format!("Failed to resolve active policy: {e}"))?
-        .ok_or_else(|| "TEMPUS_POLICY_NOT_FOUND: no active policy applies".to_string())?;
-    let bundle: Value = serde_json::from_str(&bundle_json)
-        .map_err(|e| format!("Stored policy bundle is invalid JSON: {e}"))?;
-    verify_policy_bundle(&bundle, Some(&signer.identity().public_key))?;
-    Ok(bundle)
+        .map_err(|e| format!("Failed to resolve active policy: {e}"))?;
+
+    if let Some((_version, digest, signature, attestation_json, bundle_json)) = row {
+        let (_attestation_val, canonical_att) =
+            crate::b2a::parse_canonical(&attestation_json, "active policy attestation")?;
+        let attestation_id = crate::b2a::sha256_hex(canonical_att.as_bytes());
+        if !verify_signature(
+            &signer.identity().public_key,
+            &hex::decode(&attestation_id).map_err(|e| format!("Invalid attestation id: {e}"))?,
+            &signature,
+        ) {
+            return Err(
+                "TEMPUS_POLICY_INVALID: active policy attestation signature invalid".to_string(),
+            );
+        }
+        let bundle: Value = serde_json::from_str(&bundle_json)
+            .map_err(|e| format!("Stored policy bundle is invalid JSON: {e}"))?;
+        verify_policy_bundle(&bundle, Some(&signer.identity().public_key))?;
+        if bundle.get("policy_digest").and_then(Value::as_str) != Some(&digest) {
+            return Err("TEMPUS_POLICY_INVALID: active policy digest mismatch".to_string());
+        }
+        return Ok(bundle);
+    }
+
+    // If specific tenant not found:
+    if tenant_id != "*" {
+        // Fail-closed if this tenant previously had a policy installed that was retired
+        let had_policy: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM policy_bundles WHERE tenant_id = ?1)",
+                [tenant_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if had_policy {
+            return Err(format!(
+                "TEMPUS_POLICY_NOT_FOUND: no active policy applies to tenant '{tenant_id}' (previous policy was retired)"
+            ));
+        }
+    }
+
+    // 2. Query fallback active_policy_attestations for tenant '*'
+    let row_star = conn
+        .query_row(
+            "SELECT a.policy_version, a.policy_digest, a.signature, a.attestation_json, b.bundle_json
+             FROM active_policy_attestations a
+             JOIN policy_bundles b ON b.policy_version = a.policy_version
+             WHERE a.tenant_id = '*' AND b.retired_at IS NULL",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|e| format!("Failed to resolve fallback policy: {e}"))?;
+
+    if let Some((_version, digest, signature, attestation_json, bundle_json)) = row_star {
+        let (_attestation_val, canonical_att) =
+            crate::b2a::parse_canonical(&attestation_json, "active policy attestation")?;
+        let attestation_id = crate::b2a::sha256_hex(canonical_att.as_bytes());
+        if !verify_signature(
+            &signer.identity().public_key,
+            &hex::decode(&attestation_id).map_err(|e| format!("Invalid attestation id: {e}"))?,
+            &signature,
+        ) {
+            return Err(
+                "TEMPUS_POLICY_INVALID: fallback policy attestation signature invalid".to_string(),
+            );
+        }
+        let bundle: Value = serde_json::from_str(&bundle_json)
+            .map_err(|e| format!("Stored policy bundle is invalid JSON: {e}"))?;
+        verify_policy_bundle(&bundle, Some(&signer.identity().public_key))?;
+        if bundle.get("policy_digest").and_then(Value::as_str) != Some(&digest) {
+            return Err("TEMPUS_POLICY_INVALID: fallback policy digest mismatch".to_string());
+        }
+        return Ok(bundle);
+    }
+
+    Err("TEMPUS_POLICY_NOT_FOUND: no active policy applies".to_string())
 }
 
 pub(crate) fn list_policies(conn: &Connection) -> Result<String, String> {
@@ -499,6 +693,9 @@ fn validate_policy_spec(spec: &Value) -> Result<(), String> {
     if let Some(currencies) = constraints.get("allowed_currencies") {
         pattern_list(Some(currencies), "allowed_currencies")?;
     }
+    if let Some(beneficiaries) = constraints.get("allowed_beneficiaries") {
+        pattern_list(Some(beneficiaries), "allowed_beneficiaries")?;
+    }
     if let Some(amount) = constraints.get("max_money_amount_minor") {
         if amount.as_u64().is_none() {
             return Err(
@@ -556,6 +753,15 @@ fn money_allowed(
     };
     if let Some(currencies) = constraints.get("allowed_currencies") {
         if !matches_patterns(Some(currencies), currency)? {
+            return Ok(false);
+        }
+    }
+    if let Some(beneficiaries) = constraints.get("allowed_beneficiaries") {
+        let beneficiary = money
+            .get("beneficiary")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "TEMPUS_INVALID_CONTRACT: money.beneficiary is required when allowed_beneficiaries is constrained".to_string())?;
+        if !matches_patterns(Some(beneficiaries), beneficiary)? {
             return Ok(false);
         }
     }

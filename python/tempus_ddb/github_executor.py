@@ -263,6 +263,7 @@ class GitHubExecutorAdapter:
         api_url: str = "https://api.github.com",
         transport: Optional[GitHubTransport] = None,
         executor_pool_size: int = 8,
+        gate_db: Optional[str] = None,
     ):
         token = token or os.environ.get("GITHUB_TOKEN", "")
         self._adapter = GitHubActionAdapter(
@@ -274,6 +275,7 @@ class GitHubExecutorAdapter:
             trusted_gate_id=trusted_gate_id,
             trusted_tenant_id=trusted_tenant_id,
             executor_pool_size=executor_pool_size,
+            gate_db=gate_db,
         )
 
     def execute(self, permit_json: str) -> str:
@@ -310,6 +312,7 @@ def main() -> None:
     parser.add_argument("--executor-keyfile", required=True)
     parser.add_argument("--gate-id", required=True)
     parser.add_argument("--tenant-id", required=True)
+    parser.add_argument("--gate-db", help="Optional gate DB path for revocation check")
     parser.add_argument("--token-env", default="GITHUB_TOKEN")
     parser.add_argument("--api-url", default="https://api.github.com")
     parser.add_argument(
@@ -330,6 +333,7 @@ def main() -> None:
             token=token,
             api_url=args.api_url,
             executor_pool_size=args.executor_pool_size,
+            gate_db=args.gate_db,
         )
         print(adapter.execute(_read_permit(args.permit)))
     except UnknownExecutionError as exc:

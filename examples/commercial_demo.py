@@ -64,7 +64,7 @@ def print_step(step_num, title):
 
 def main():
     print("================================================================")
-    print(" Tempus DDB - Demostración Comercial (Epic 5)")
+    print(" Tempus DDB - Demostracion Comercial (Epic 5)")
     print("================================================================\n")
     print("Esta demo prueba que: Un agente puede decidir lo que quiera, pero")
     print("no puede producir un efecto irreversible sin pasar por Tempus.\n")
@@ -224,8 +224,8 @@ if __name__ == "__main__":
     try:
         main()
     except AssertionError:
-        color_print("\n❌ Assertion Error: Demo fallida en una aserción.", "31")
+        color_print("\n[ERROR] Assertion Error: Demo fallida en una asercion.", "31")
         sys.exit(1)
     except Exception as e:
-        color_print(f"\n❌ Error inesperado: {e}", "31")
+        color_print(f"\n[ERROR] Error inesperado: {e}", "31")
         sys.exit(1)

@@ -22,6 +22,7 @@ struct AgentState {
     can_delegate: bool,
     tenant_id: String,
     identity_id: String,
+    metadata: String,
 }
 
 #[derive(Debug)]
@@ -75,7 +76,13 @@ pub(crate) fn initialize_schema(conn: &Connection) -> Result<(), String> {
             FOREIGN KEY (authorization_id) REFERENCES action_authorizations(authorization_id)
         );
         CREATE INDEX IF NOT EXISTS idx_action_outcomes_executor
-            ON action_outcomes (executor_id, completed_at DESC);",
+            ON action_outcomes (executor_id, completed_at DESC);
+
+        CREATE TABLE IF NOT EXISTS trusted_roots (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            public_key TEXT NOT NULL UNIQUE,
+            established_at INTEGER NOT NULL
+        );",
     )
     .map_err(|e| format!("Failed to initialize B2A schema: {e}"))?;
 
@@ -95,6 +102,14 @@ pub(crate) fn initialize_schema(conn: &Connection) -> Result<(), String> {
             }
         }
     }
+
+    // Backfill trusted root from earliest self-signed agent if not yet present
+    let _ = conn.execute(
+        "INSERT OR IGNORE INTO trusted_roots (id, public_key, established_at)
+         SELECT 1, public_key, registered_at FROM agents
+         WHERE registered_by = public_key ORDER BY registered_at ASC LIMIT 1",
+        [],
+    );
 
     crate::phase3::initialize_schema(conn)?;
     crate::events::initialize_schema(conn)?;
@@ -155,7 +170,7 @@ pub(crate) fn canonicalize(value: &Value) -> Result<String, String> {
     Ok(output)
 }
 
-fn parse_canonical(raw: &str, label: &str) -> Result<(Value, String), String> {
+pub(crate) fn parse_canonical(raw: &str, label: &str) -> Result<(Value, String), String> {
     let value: Value =
         serde_json::from_str(raw).map_err(|e| format!("{label} must be valid JSON: {e}"))?;
     let canonical = canonicalize(&value)?;
@@ -401,6 +416,19 @@ fn verify_agent_state_at(
     public_key: &str,
     at_micros: u64,
 ) -> Result<Option<AgentState>, String> {
+    let mut visited = std::collections::HashSet::new();
+    verify_agent_state_at_inner(conn, public_key, at_micros, &mut visited)
+}
+
+fn verify_agent_state_at_inner(
+    conn: &Connection,
+    public_key: &str,
+    at_micros: u64,
+    visited: &mut std::collections::HashSet<String>,
+) -> Result<Option<AgentState>, String> {
+    if visited.len() > 16 || !visited.insert(public_key.to_string()) {
+        return Ok(None);
+    }
     let row = conn
         .query_row(
             "SELECT alias, registered_at, metadata, status, can_delegate, registered_by,
@@ -520,11 +548,38 @@ fn verify_agent_state_at(
     let valid_at_time = valid_from <= at_micros
         && effective_until.is_none_or(|value| at_micros < value)
         && revoked_at.is_none_or(|value| at_micros < value);
+
+    let is_trusted_root: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM trusted_roots WHERE public_key = ?1)",
+            [public_key],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if registered_by == public_key {
+        if !is_trusted_root {
+            return Ok(None);
+        }
+    } else {
+        let registrar = verify_agent_state_at_inner(conn, &registered_by, registered_at, visited)?;
+        let Some(registrar_state) = registrar else {
+            return Ok(None);
+        };
+        if !registrar_state.active || !registrar_state.can_delegate {
+            return Ok(None);
+        }
+        if registrar_state.tenant_id != "*" && registrar_state.tenant_id != tenant_id {
+            return Ok(None);
+        }
+    }
+
     Ok(Some(AgentState {
         active: valid_at_time,
         can_delegate,
         tenant_id,
         identity_id,
+        metadata,
     }))
 }
 
@@ -673,42 +728,70 @@ pub(crate) fn register_agent(
 
     storage
         .conn
-        .execute(
-            "INSERT INTO agents
-             (public_key, alias, registered_at, metadata, status, can_delegate, registered_by,
-               registration_event_id, registration_event, registration_signature,
-               identity_id, tenant_id, key_version, signer_uri, algorithm, valid_from)
-              VALUES (?1, ?2, ?3, ?4, 'active', ?5, ?6, ?7, ?8, ?9,
-                      ?1, ?10, ?11, ?12, ?13, ?3)",
-            params![
-                public_key,
-                alias,
-                registered_at,
-                canonical_metadata,
-                can_delegate,
-                registrar_id,
-                event_id,
-                canonical_event,
-                signature,
-                tenant_id,
-                key_version,
-                signer_uri,
-                algorithm,
-            ],
-        )
-        .map_err(|e| format!("Failed to register agent: {e}"))?;
-    if agent_count == 0 {
-        crate::phase3::ensure_default_policy(&storage.conn, &registrar_key, registered_at)?;
-    }
+        .execute_batch("BEGIN IMMEDIATE")
+        .map_err(|e| format!("Failed to begin registration transaction: {e}"))?;
+    let reg_result: Result<(), String> = (|| {
+        storage
+            .conn
+            .execute(
+                "INSERT INTO agents
+                 (public_key, alias, registered_at, metadata, status, can_delegate, registered_by,
+                   registration_event_id, registration_event, registration_signature,
+                   identity_id, tenant_id, key_version, signer_uri, algorithm, valid_from)
+                  VALUES (?1, ?2, ?3, ?4, 'active', ?5, ?6, ?7, ?8, ?9,
+                          ?1, ?10, ?11, ?12, ?13, ?3)",
+                params![
+                    public_key,
+                    alias,
+                    registered_at,
+                    canonical_metadata,
+                    can_delegate,
+                    registrar_id,
+                    event_id,
+                    canonical_event,
+                    signature,
+                    tenant_id,
+                    key_version,
+                    signer_uri,
+                    algorithm,
+                ],
+            )
+            .map_err(|e| format!("Failed to insert agent: {e}"))?;
 
-    crate::events::record_event(
-        &storage.conn,
-        tenant_id,
-        "agent.registered",
-        &event_id,
-        &canonical_event,
-        registered_at,
-    )?;
+        if agent_count == 0 {
+            storage
+                .conn
+                .execute(
+                    "INSERT OR REPLACE INTO trusted_roots (id, public_key, established_at) VALUES (1, ?1, ?2)",
+                    params![public_key, registered_at],
+                )
+                .map_err(|e| format!("Failed to establish trusted root: {e}"))?;
+            crate::phase3::ensure_default_policy(&storage.conn, &registrar_key, registered_at)?;
+        }
+
+        crate::events::record_event(
+            &storage.conn,
+            tenant_id,
+            "agent.registered",
+            &event_id,
+            &canonical_event,
+            registered_at,
+        )?;
+        Ok(())
+    })();
+
+    match reg_result {
+        Ok(()) => {
+            storage
+                .conn
+                .execute_batch("COMMIT")
+                .map_err(|e| format!("Failed to commit registration: {e}"))?;
+        }
+        Err(err) => {
+            let _ = storage.conn.execute_batch("ROLLBACK");
+            return Err(format!("Failed to register agent: {err}"));
+        }
+    }
 
     canonicalize(&json!({
         "schema_version": AGENT_REGISTRATION_SCHEMA,
@@ -1242,34 +1325,55 @@ pub(crate) fn request_action_signed(
 
     storage
         .conn
-        .execute(
-            "INSERT INTO action_authorizations
-             (authorization_id, action_id, tenant_id, agent_id, idempotency_key, intent_hash,
-              decision, issued_at, expires_at, authorization_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![
-                authorization_id,
-                action_id,
-                fields.tenant_id,
-                fields.agent_id,
-                fields.idempotency_key,
-                intent_hash,
-                decision,
-                issued_at,
-                expires_at,
-                authorization_json,
-            ],
-        )
-        .map_err(|e| format!("Failed to persist authorization receipt: {e}"))?;
+        .execute_batch("BEGIN IMMEDIATE")
+        .map_err(|e| format!("Failed to begin authorization transaction: {e}"))?;
 
-    crate::events::record_event(
-        &storage.conn,
-        &fields.tenant_id,
-        "action.authorized",
-        &authorization_id,
-        &authorization_json,
-        issued_at,
-    )?;
+    let auth_result: Result<(), String> = (|| {
+        storage
+            .conn
+            .execute(
+                "INSERT INTO action_authorizations
+                 (authorization_id, action_id, tenant_id, agent_id, idempotency_key, intent_hash,
+                  decision, issued_at, expires_at, authorization_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    authorization_id,
+                    action_id,
+                    fields.tenant_id,
+                    fields.agent_id,
+                    fields.idempotency_key,
+                    intent_hash,
+                    decision,
+                    issued_at,
+                    expires_at,
+                    authorization_json,
+                ],
+            )
+            .map_err(|e| format!("Failed to persist authorization receipt: {e}"))?;
+
+        crate::events::record_event(
+            &storage.conn,
+            &fields.tenant_id,
+            "action.authorized",
+            &authorization_id,
+            &authorization_json,
+            issued_at,
+        )?;
+        Ok(())
+    })();
+
+    match auth_result {
+        Ok(()) => {
+            storage
+                .conn
+                .execute_batch("COMMIT")
+                .map_err(|e| format!("Failed to commit authorization transaction: {e}"))?;
+        }
+        Err(err) => {
+            let _ = storage.conn.execute_batch("ROLLBACK");
+            return Err(err);
+        }
+    }
 
     Ok(authorization_json)
 }
@@ -1655,6 +1759,12 @@ pub(crate) fn commit_outcome_signed(
     }
 
     let executor_id = string_field(&outcome_for_hash, "executor_id")?;
+    let agent_id = string_field(authorization, "agent_id")?;
+    if executor_id == agent_id {
+        return Err(
+            "TEMPUS_EXECUTOR_INVALID: proposer agent cannot execute its own permit".to_string(),
+        );
+    }
     let policy_bundle = authorization_value
         .get("policy_bundle")
         .ok_or_else(|| "TEMPUS_POLICY_BUNDLE_MISSING".to_string())?;
@@ -1665,6 +1775,20 @@ pub(crate) fn commit_outcome_signed(
         .ok_or_else(|| "TEMPUS_EXECUTOR_NOT_REGISTERED".to_string())?;
     if !executor.active {
         return Err("TEMPUS_EXECUTOR_NOT_ACTIVE".to_string());
+    }
+    let tenant_id = string_field(authorization, "tenant_id")?;
+    if executor.tenant_id != "*" && executor.tenant_id != tenant_id {
+        return Err(
+            "TEMPUS_EXECUTOR_TENANT_SCOPE_DENIED: executor cannot operate outside assigned tenant"
+                .to_string(),
+        );
+    }
+    if let Ok(meta_val) = serde_json::from_str::<Value>(&executor.metadata) {
+        if meta_val.get("role").and_then(Value::as_str) == Some("proposer") {
+            return Err(
+                "TEMPUS_EXECUTOR_INVALID: executor agent cannot have proposer role".to_string(),
+            );
+        }
     }
 
     if !verify_message_signature(
@@ -1705,39 +1829,62 @@ pub(crate) fn commit_outcome_signed(
         "outcome": outcome_value,
     });
     let execution_json = canonicalize(&result)?;
+
     storage
         .conn
-        .execute(
-            "INSERT INTO action_outcomes
-             (receipt_id, authorization_id, action_id, executor_id, outcome_hash,
-              completed_at, execution_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![
-                receipt_id,
-                authorization_id,
-                action_id,
-                executor_id,
-                outcome_hash,
-                completed_at,
-                execution_json,
-            ],
-        )
-        .map_err(|e| format!("Failed to persist execution receipt: {e}"))?;
+        .execute_batch("BEGIN IMMEDIATE")
+        .map_err(|e| format!("Failed to begin outcome commit transaction: {e}"))?;
 
-    let event_tenant = string_field(authorization, "tenant_id").unwrap_or_else(|_| "*".to_string());
-    let event_type = if outcome_status == "SUCCEEDED" {
-        "action.executed"
-    } else {
-        "action.failed"
-    };
-    crate::events::record_event(
-        &storage.conn,
-        &event_tenant,
-        event_type,
-        &receipt_id,
-        &execution_json,
-        completed_at,
-    )?;
+    let outcome_result: Result<(), String> = (|| {
+        storage
+            .conn
+            .execute(
+                "INSERT INTO action_outcomes
+                 (receipt_id, authorization_id, action_id, executor_id, outcome_hash,
+                  completed_at, execution_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    receipt_id,
+                    authorization_id,
+                    action_id,
+                    executor_id,
+                    outcome_hash,
+                    completed_at,
+                    execution_json,
+                ],
+            )
+            .map_err(|e| format!("Failed to persist execution receipt: {e}"))?;
+
+        let event_tenant =
+            string_field(authorization, "tenant_id").unwrap_or_else(|_| "*".to_string());
+        let event_type = if outcome_status == "SUCCEEDED" {
+            "action.executed"
+        } else {
+            "action.failed"
+        };
+        crate::events::record_event(
+            &storage.conn,
+            &event_tenant,
+            event_type,
+            &receipt_id,
+            &execution_json,
+            completed_at,
+        )?;
+        Ok(())
+    })();
+
+    match outcome_result {
+        Ok(()) => {
+            storage
+                .conn
+                .execute_batch("COMMIT")
+                .map_err(|e| format!("Failed to commit outcome transaction: {e}"))?;
+        }
+        Err(err) => {
+            let _ = storage.conn.execute_batch("ROLLBACK");
+            return Err(err);
+        }
+    }
 
     Ok(execution_json)
 }
@@ -1799,6 +1946,11 @@ fn verify_execution(
             errors.push(format!("EXECUTION_{field}_MISMATCH").to_uppercase());
         }
     }
+    if receipt.get("executor_id").is_some()
+        && receipt.get("executor_id") == authorization_receipt.get("agent_id")
+    {
+        errors.push("EXECUTOR_AGENT_COLLUSION".to_string());
+    }
     let Some(outcome) = execution.get("outcome") else {
         errors.push("OUTCOME_MISSING".to_string());
         return errors;
@@ -1847,7 +1999,20 @@ fn verify_execution(
         .and_then(Value::as_u64)
         .unwrap_or_default();
     match verify_agent_state_at(&storage.conn, executor_id, completed_at) {
-        Ok(Some(state)) if state.active => {}
+        Ok(Some(state)) if state.active => {
+            let auth_tenant = authorization_receipt
+                .get("tenant_id")
+                .and_then(Value::as_str)
+                .unwrap_or("*");
+            if state.tenant_id != "*" && auth_tenant != "*" && state.tenant_id != auth_tenant {
+                errors.push("EXECUTOR_TENANT_SCOPE_MISMATCH".to_string());
+            }
+            if let Ok(meta_val) = serde_json::from_str::<Value>(&state.metadata) {
+                if meta_val.get("role").and_then(Value::as_str) == Some("proposer") {
+                    errors.push("EXECUTOR_ROLE_INVALID".to_string());
+                }
+            }
+        }
         Ok(_) => errors.push("EXECUTOR_IDENTITY_NOT_TRUSTED".to_string()),
         Err(error) => errors.push(error),
     }

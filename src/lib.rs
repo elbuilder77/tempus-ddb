@@ -13,6 +13,8 @@ mod b2a;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod phase3;
+#[cfg(not(target_arch = "wasm32"))]
+use phase3::SignerBackend;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod events;
@@ -143,7 +145,7 @@ impl SqliteStorage {
 
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
-             PRAGMA synchronous = NORMAL;
+             PRAGMA synchronous = FULL;
              PRAGMA busy_timeout = 5000;",
         )
         .map_err(|e| e.to_string())?;
@@ -653,8 +655,25 @@ impl SqliteStorage {
         &self,
         checkpoint_json: &str,
         stream_json: &str,
+        expected_public_key: Option<&str>,
     ) -> Result<String, String> {
-        events::verify_checkpoint_stream(checkpoint_json, stream_json, None)
+        let expected = match expected_public_key {
+            Some(pk) => Some(pk.to_string()),
+            None => self
+                .load_signer()
+                .ok()
+                .map(|s| s.identity().public_key.clone())
+                .or_else(|| {
+                    self.conn
+                        .query_row(
+                            "SELECT public_key FROM trusted_roots WHERE id = 1",
+                            [],
+                            |r| r.get(0),
+                        )
+                        .ok()
+                }),
+        };
+        events::verify_checkpoint_stream(checkpoint_json, stream_json, expected.as_deref())
     }
 }
 
@@ -1215,14 +1234,15 @@ impl TempusDDB {
             .map_err(PyRuntimeError::new_err)
     }
 
-    #[pyo3(signature = (checkpoint_json, stream_json))]
+    #[pyo3(signature = (checkpoint_json, stream_json, expected_public_key=None))]
     fn verify_checkpoint_stream(
         &self,
         checkpoint_json: &str,
         stream_json: &str,
+        expected_public_key: Option<&str>,
     ) -> PyResult<String> {
         self.storage
-            .verify_checkpoint_stream(checkpoint_json, stream_json)
+            .verify_checkpoint_stream(checkpoint_json, stream_json, expected_public_key)
             .map_err(PyRuntimeError::new_err)
     }
 }
@@ -1340,23 +1360,26 @@ pub struct TempusExecutor {
 #[pymethods]
 impl TempusExecutor {
     #[new]
-    #[pyo3(signature = (db_path, keyfile, trusted_gate_id, trusted_tenant_id, pool_size=8))]
+    #[pyo3(signature = (db_path, keyfile, trusted_gate_id, trusted_tenant_id, pool_size=8, gate_db=None))]
     pub fn new(
         db_path: String,
         keyfile: String,
         trusted_gate_id: String,
         trusted_tenant_id: String,
         pool_size: u32,
+        gate_db: Option<String>,
     ) -> PyResult<Self> {
         let storage = SqliteExecutorStorage::with_pool_size(&db_path, pool_size)
             .map_err(PyRuntimeError::new_err)?;
-        let inner = MediatedExecutor::new(
+        let gate_db_final = gate_db.or_else(|| std::env::var("TEMPUS_GATE_DB").ok());
+        let mut inner = MediatedExecutor::new(
             Box::new(storage),
             &keyfile,
             &trusted_gate_id,
             &trusted_tenant_id,
         )
         .map_err(PyRuntimeError::new_err)?;
+        inner = inner.with_gate_db(gate_db_final);
         Ok(Self { inner })
     }
 

@@ -54,7 +54,7 @@ impl SqliteExecutorStorage {
         let manager = SqliteConnectionManager::file(db_path).with_init(|conn| {
             conn.execute_batch(
                 "PRAGMA journal_mode = WAL;
-                 PRAGMA synchronous = NORMAL;
+                 PRAGMA synchronous = FULL;
                  PRAGMA busy_timeout = 5000;",
             )
         });
@@ -240,6 +240,7 @@ pub struct MediatedExecutor {
     signer: ConfiguredSigner,
     trusted_gate_id: String,
     trusted_tenant_id: String,
+    gate_db: Option<String>,
 }
 
 impl MediatedExecutor {
@@ -251,12 +252,19 @@ impl MediatedExecutor {
     ) -> Result<Self, String> {
         let signer = ConfiguredSigner::from_path(keyfile)?;
         storage.initialize()?;
+        let gate_db = std::env::var("TEMPUS_GATE_DB").ok();
         Ok(Self {
             storage,
             signer,
             trusted_gate_id: trusted_gate_id.to_string(),
             trusted_tenant_id: trusted_tenant_id.to_string(),
+            gate_db,
         })
+    }
+
+    pub fn with_gate_db(mut self, gate_db: Option<String>) -> Self {
+        self.gate_db = gate_db;
+        self
     }
 
     fn executor_id(&self) -> String {
@@ -388,6 +396,52 @@ impl MediatedExecutor {
                 != Some(&policy_decision.executor_constraints)
         {
             return Err("Policy evidence is not reproducible".to_string());
+        }
+
+        if let Some(ref gate_db_path) = self.gate_db {
+            let gate_conn = rusqlite::Connection::open_with_flags(
+                gate_db_path,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                    | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            )
+            .map_err(|e| format!("Failed to open gate DB for revocation check: {e}"))?;
+
+            let is_revoked: bool = gate_conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM revoked_authorizations WHERE authorization_id = ?1)",
+                    [authorization_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| format!("Failed to query revoked_authorizations: {e}"))?;
+            if is_revoked {
+                return Err("TEMPUS_PERMIT_REVOKED: permit has been revoked at gate".to_string());
+            }
+
+            let agent_id = authorization
+                .get("agent_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let agent_revoked: bool = gate_conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM identity_lifecycle_events WHERE public_key = ?1 AND event_type = 'REVOKE')",
+                    [agent_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| format!("Failed to query identity revocation: {e}"))?;
+            if agent_revoked {
+                return Err("TEMPUS_PERMIT_REVOKED: agent identity has been revoked".to_string());
+            }
+
+            let already_consumed: bool = gate_conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM action_outcomes WHERE authorization_id = ?1)",
+                    [authorization_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| format!("Failed to query action_outcomes: {e}"))?;
+            if already_consumed {
+                return Err("TEMPUS_PERMIT_ALREADY_CONSUMED: permit already has an outcome committed to gate".to_string());
+            }
         }
 
         let action_id = authorization
@@ -644,6 +698,198 @@ mod tests {
         assert_eq!(
             executor.verify_and_consume_permit(&permit).unwrap_err(),
             "Missing signed policy bundle"
+        );
+    }
+
+    #[test]
+    fn executor_checks_gate_db_revocations_and_replays() {
+        let temp = tempdir().unwrap();
+        let executor_key = SigningKey::generate(&mut OsRng);
+        let executor_keyfile = temp.path().join("executor.keys.json");
+        fs::write(
+            &executor_keyfile,
+            json!({
+                "private_key": hex::encode(executor_key.to_bytes()),
+                "public_key": hex::encode(executor_key.verifying_key().to_bytes()),
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let gate_key = SigningKey::generate(&mut OsRng);
+        let gate_id = hex::encode(gate_key.verifying_key().to_bytes());
+        let gate_db_path = temp.path().join("gate.db");
+
+        // Set up gate DB tables
+        let gate_conn = rusqlite::Connection::open(&gate_db_path).unwrap();
+        gate_conn
+            .execute_batch(
+                "CREATE TABLE revoked_authorizations (
+                    authorization_id TEXT PRIMARY KEY,
+                    revoked_at INTEGER NOT NULL,
+                    reason TEXT,
+                    identity_event_id TEXT
+                 );
+                 CREATE TABLE identity_lifecycle_events (
+                    event_id TEXT PRIMARY KEY,
+                    identity_id TEXT NOT NULL,
+                    public_key TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    effective_at INTEGER NOT NULL,
+                    event_json TEXT NOT NULL
+                 );
+                 CREATE TABLE action_outcomes (
+                    receipt_id TEXT PRIMARY KEY,
+                    authorization_id TEXT NOT NULL UNIQUE,
+                    action_id TEXT NOT NULL UNIQUE,
+                    executor_id TEXT NOT NULL,
+                    outcome_hash TEXT NOT NULL,
+                    completed_at INTEGER NOT NULL,
+                    execution_json TEXT NOT NULL
+                 );",
+            )
+            .unwrap();
+
+        let issued_at = now_micros().unwrap();
+        let expires_at = issued_at + 60_000_000;
+
+        // Valid signed policy bundle
+        let mut policy_body = json!({
+            "schema_version": "tempus.policy-bundle.v1",
+            "policy_version": "tempus.identity-gate.v1",
+            "tenant_id": "test-tenant",
+            "constraints": {
+                "allowed_action_types": ["github.create_issue"],
+                "allowed_resources": ["*"],
+                "allowed_executors": ["*"],
+                "max_ttl_seconds": 86400,
+                "max_input_bytes": 65536,
+                "allowed_currencies": ["*"],
+            },
+            "issued_at": issued_at,
+            "signer": {
+                "signer_uri": format!("local-ed25519://{gate_id}"),
+                "key_version": "v1",
+                "algorithm": "Ed25519",
+                "public_key": gate_id,
+            }
+        });
+        let policy_digest = hex::encode(Sha256::digest(
+            crate::b2a::canonicalize(&policy_body).unwrap().as_bytes(),
+        ));
+        let policy_sig = gate_key.sign(&hex::decode(&policy_digest).unwrap());
+        policy_body["policy_digest"] = json!(policy_digest);
+        policy_body["signature"] = json!(hex::encode(policy_sig.to_bytes()));
+        let policy_bundle = policy_body;
+
+        let intent = json!({
+            "schema_version": "tempus.action-intent.v1",
+            "tenant_id": "test-tenant",
+            "agent_id": "test-agent",
+            "idempotency_key": "revocation-test-001",
+            "action_type": "github.create_issue",
+            "resource": "acme/widget",
+            "requested_at": now_micros().unwrap(),
+            "input": {"title": "test issue"},
+        });
+        let intent_hash = hex::encode(Sha256::digest(
+            crate::b2a::canonicalize(&intent).unwrap().as_bytes(),
+        ));
+        let policy_decision = crate::phase3::evaluate_policy(&policy_bundle, &intent, 60).unwrap();
+        let mut authorization = json!({
+            "schema_version": "tempus.authorization-receipt.v1",
+            "action_id": "test-action-rev",
+            "tenant_id": "test-tenant",
+            "agent_id": "test-agent",
+            "intent_hash": intent_hash,
+            "decision": "ALLOWED",
+            "reason_codes": ["POLICY_ALLOWED"],
+            "policy_version": "tempus.identity-gate.v1",
+            "policy_digest": policy_bundle["policy_digest"].as_str().unwrap(),
+            "evidence_digest": policy_decision.evidence_digest,
+            "executor_constraints": policy_decision.executor_constraints,
+            "issued_at": issued_at,
+            "expires_at": expires_at,
+            "gate_id": gate_id,
+        });
+        let authorization_id = hex::encode(Sha256::digest(
+            crate::b2a::canonicalize(&authorization).unwrap().as_bytes(),
+        ));
+        let signature = gate_key.sign(&hex::decode(&authorization_id).unwrap());
+        authorization["authorization_id"] = json!(authorization_id);
+        authorization["gate_signature"] = json!(hex::encode(signature.to_bytes()));
+
+        let permit = crate::b2a::canonicalize(&json!({
+            "schema_version": "tempus.authorization-result.v1",
+            "authorization": authorization,
+            "intent": intent,
+            "agent_signature": "",
+            "policy_bundle": policy_bundle,
+        }))
+        .unwrap();
+
+        // Insert into revoked_authorizations
+        gate_conn
+            .execute(
+                "INSERT INTO revoked_authorizations (authorization_id, revoked_at, reason, identity_event_id)
+                 VALUES (?1, ?2, 'test revoked', 'evt-1')",
+                rusqlite::params![authorization_id, issued_at],
+            )
+            .unwrap();
+
+        let executor = MediatedExecutor::new(
+            Box::new(
+                SqliteExecutorStorage::with_pool_size(
+                    temp.path().join("executor.db").to_str().unwrap(),
+                    8,
+                )
+                .unwrap(),
+            ),
+            executor_keyfile.to_str().unwrap(),
+            &gate_id,
+            "test-tenant",
+        )
+        .unwrap()
+        .with_gate_db(Some(gate_db_path.to_str().unwrap().to_string()));
+
+        let err = executor.verify_and_consume_permit(&permit).unwrap_err();
+        assert!(
+            err.contains("TEMPUS_PERMIT_REVOKED"),
+            "Expected TEMPUS_PERMIT_REVOKED, got: {err}"
+        );
+
+        // Test agent identity revocation
+        gate_conn
+            .execute("DELETE FROM revoked_authorizations", [])
+            .unwrap();
+        gate_conn
+            .execute(
+                "INSERT INTO identity_lifecycle_events (event_id, identity_id, public_key, event_type, effective_at, event_json)
+                 VALUES ('evt-1', 'test-agent', 'test-agent', 'REVOKE', ?1, '{}')",
+                rusqlite::params![issued_at],
+            )
+            .unwrap();
+        let err_agent = executor.verify_and_consume_permit(&permit).unwrap_err();
+        assert!(
+            err_agent.contains("agent identity has been revoked"),
+            "Expected agent revoked error, got: {err_agent}"
+        );
+
+        // Test already consumed replay guard
+        gate_conn
+            .execute("DELETE FROM identity_lifecycle_events", [])
+            .unwrap();
+        gate_conn
+            .execute(
+                "INSERT INTO action_outcomes (receipt_id, authorization_id, action_id, executor_id, outcome_hash, completed_at, execution_json)
+                 VALUES ('rcpt-1', ?1, 'test-action-rev', 'exec-1', 'hash-1', ?2, '{}')",
+                rusqlite::params![authorization_id, issued_at],
+            )
+            .unwrap();
+        let err_consumed = executor.verify_and_consume_permit(&permit).unwrap_err();
+        assert!(
+            err_consumed.contains("TEMPUS_PERMIT_ALREADY_CONSUMED"),
+            "Expected already consumed error, got: {err_consumed}"
         );
     }
 }

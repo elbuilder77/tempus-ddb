@@ -1,5 +1,5 @@
 use crate::b2a::sha256_hex;
-use crate::phase3::{ConfiguredSigner, SignerBackend, VerificationKeyResolver};
+use crate::phase3::{ConfiguredSigner, SignerBackend};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
@@ -256,7 +256,7 @@ pub(crate) fn export_event_stream(
 pub(crate) fn verify_checkpoint_stream(
     checkpoint_json: &str,
     stream_json: &str,
-    _resolver: Option<&dyn VerificationKeyResolver>,
+    expected_public_key: Option<&str>,
 ) -> Result<String, String> {
     let checkpoint: Value = serde_json::from_str(checkpoint_json)
         .map_err(|e| format!("Invalid checkpoint JSON: {e}"))?;
@@ -319,6 +319,30 @@ pub(crate) fn verify_checkpoint_stream(
         .get("public_key")
         .and_then(|v| v.as_str())
         .ok_or("Checkpoint signer missing public_key")?;
+
+    let Some(expected_pk) = expected_public_key else {
+        return Ok(json!({
+            "schema_version": CHECKPOINT_VERIFICATION_SCHEMA,
+            "status": "INVALID",
+            "checkpoint_id": checkpoint_id,
+            "events_verified": 0,
+            "reason_code": "ERR_UNTRUSTED_SIGNER",
+            "message": "Expected trusted signer public key must be provided to verify checkpoint"
+        })
+        .to_string());
+    };
+
+    if pubkey_hex != expected_pk {
+        return Ok(json!({
+            "schema_version": CHECKPOINT_VERIFICATION_SCHEMA,
+            "status": "INVALID",
+            "checkpoint_id": checkpoint_id,
+            "events_verified": 0,
+            "reason_code": "ERR_UNTRUSTED_SIGNER",
+            "message": format!("Checkpoint signer {pubkey_hex} does not match expected trusted key {expected_pk}")
+        })
+        .to_string());
+    }
 
     let pubkey_bytes =
         hex::decode(pubkey_hex).map_err(|e| format!("Invalid signer public key hex: {e}"))?;

@@ -119,6 +119,7 @@ class SlackExecutorAdapter:
         token: Optional[str] = None,
         transport: Optional[SlackTransport] = None,
         executor_pool_size: int = 8,
+        gate_db: Optional[str] = None,
     ):
         self._adapter = SlackActionAdapter(token=token, transport=transport)
         self._runtime = ExecutorRuntime(
@@ -127,6 +128,7 @@ class SlackExecutorAdapter:
             trusted_gate_id=trusted_gate_id,
             trusted_tenant_id=trusted_tenant_id,
             executor_pool_size=executor_pool_size,
+            gate_db=gate_db,
         )
 
     def execute(self, permit_json: str) -> str:

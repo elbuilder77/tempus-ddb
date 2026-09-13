@@ -612,3 +612,71 @@ fn phase3_policy_rotation_and_emergency_revocation_are_enforced() {
         2
     );
 }
+
+#[test]
+fn test_segregation_of_duties_proposer_cannot_execute() {
+    let temp = tempfile::tempdir().unwrap();
+    let db_path = temp.path().join("gate.db");
+    let gate_keyfile = temp.path().join("gate.keys.json");
+    let agent_keyfile = temp.path().join("agent.keys.json");
+    generate_keypair(gate_keyfile.to_str().unwrap()).unwrap();
+    generate_keypair(agent_keyfile.to_str().unwrap()).unwrap();
+
+    let gate_id = public_key(&gate_keyfile);
+    let agent_id = public_key(&agent_keyfile);
+    let storage = SqliteStorage::new(
+        db_path.to_str().unwrap().to_string(),
+        gate_keyfile.to_str().unwrap().to_string(),
+    )
+    .unwrap();
+
+    storage
+        .register_agent(&gate_id, "gate", r#"{"can_delegate":true}"#)
+        .unwrap();
+    storage
+        .register_agent(&agent_id, "agent-both", "{}")
+        .unwrap();
+
+    let req = intent(&agent_id, "action-self", "transfer");
+    let auth_json = storage
+        .request_action(&req, agent_keyfile.to_str().unwrap(), 60)
+        .unwrap();
+    let auth = parse(&auth_json);
+    let auth_id = auth["authorization"]["authorization_id"].as_str().unwrap();
+    let act_id = auth["authorization"]["action_id"].as_str().unwrap();
+
+    let outcome = json!({
+        "schema_version": "tempus.action-outcome.v1",
+        "authorization_id": auth_id,
+        "action_id": act_id,
+        "status": "SUCCEEDED",
+        "output": {}
+    })
+    .to_string();
+
+    let err = storage
+        .commit_outcome(auth_id, &outcome, agent_keyfile.to_str().unwrap())
+        .unwrap_err();
+    assert!(
+        err.contains("TEMPUS_EXECUTOR_INVALID"),
+        "Expected TEMPUS_EXECUTOR_INVALID error, got: {err}"
+    );
+}
+
+#[test]
+fn test_copy_pyd_binary() {
+    let candidates = [
+        "target/debug/deps/_tempus_ddb.dll",
+        "target/debug/_tempus_ddb.dll",
+        "target/release/deps/_tempus_ddb.dll",
+        "target/release/_tempus_ddb.dll",
+    ];
+    let pyd_path = std::path::Path::new("python/tempus_ddb/_tempus_ddb.pyd");
+    for cand in candidates {
+        let dll_path = std::path::Path::new(cand);
+        if dll_path.exists() {
+            let _ = std::fs::copy(dll_path, pyd_path);
+            break;
+        }
+    }
+}

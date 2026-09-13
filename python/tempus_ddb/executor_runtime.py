@@ -63,18 +63,21 @@ class ExecutorRuntime:
         trusted_gate_id: str,
         trusted_tenant_id: str,
         executor_pool_size: int = 8,
+        gate_db: Optional[str] = None,
     ):
         self._executor_db = executor_db
         self._executor_keyfile = executor_keyfile
         self._trusted_gate_id = trusted_gate_id
         self._trusted_tenant_id = trusted_tenant_id
         self._pool_size = executor_pool_size
+        self._gate_db = gate_db
         self._executor = TempusExecutor(
             executor_db,
             executor_keyfile,
             trusted_gate_id,
             trusted_tenant_id,
             executor_pool_size,
+            gate_db,
         )
 
     @property
@@ -178,6 +181,11 @@ class ExecutorRuntime:
         parser.add_argument(
             "--executor-pool-size", type=int, default=8, help="Connection pool size"
         )
+        parser.add_argument(
+            "--gate-db",
+            default=None,
+            help="Optional path to Tempus Gate SQLite DB for revocation and replay verification",
+        )
 
         if extra_args_fn:
             extra_args_fn(parser)
@@ -193,6 +201,7 @@ class ExecutorRuntime:
             trusted_gate_id=args.gate_id,
             trusted_tenant_id=args.tenant_id,
             executor_pool_size=args.executor_pool_size,
+            gate_db=args.gate_db,
         )
 
         adapter = adapter_factory(args)
