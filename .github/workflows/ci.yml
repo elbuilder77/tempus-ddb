@@ -58,7 +58,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ['3.10', '3.12']
+        python-version: ['3.10', '3.11', '3.12']
 
     steps:
       - uses: actions/checkout@v4
@@ -87,7 +87,7 @@ jobs:
 
       - name: Validate SPDX SBOM generation
         run: |
-          python scripts/generate_sbom.py --version 0.4.0-ci --output artifacts/tempus-ddb.spdx.json
+          python scripts/generate_sbom.py --version 0.5.2-ci --output artifacts/tempus-ddb.spdx.json
           python -c "import json; d=json.load(open('artifacts/tempus-ddb.spdx.json', encoding='utf-8')); assert d['spdxVersion']=='SPDX-2.3' and d['packages']"
 
       - name: Run Python tests

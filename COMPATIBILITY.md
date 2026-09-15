@@ -1,6 +1,6 @@
 # Compatibility and deprecation policy
 
-Tempus DDB `0.4.x` is a design-partner beta. The project keeps wire contracts stricter
+Tempus DDB `0.5.x` is a design-partner beta. The project keeps wire contracts stricter
 than its convenience APIs because authorization receipts may outlive a deployment.
 
 ## Wire schemas
