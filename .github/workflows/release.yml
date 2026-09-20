@@ -149,7 +149,7 @@ jobs:
           subject-path: dist/*
           sbom-path: sbom/tempus-ddb-${{ env.RELEASE_TAG }}.spdx.json
       - name: Upload to GitHub Release
-        uses: svenstaro/upload-release-action@04733e069f2d7f7f0b4aebc4fbdbce8613b03ccd # v2.7.0
+        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2.7.0
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: dist/*
@@ -157,7 +157,7 @@ jobs:
           tag: ${{ env.RELEASE_TAG }}
           overwrite: true
       - name: Upload SBOM to GitHub Release
-        uses: svenstaro/upload-release-action@04733e069f2d7f7f0b4aebc4fbdbce8613b03ccd # v2.7.0
+        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2.7.0
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: sbom/tempus-ddb-${{ env.RELEASE_TAG }}.spdx.json
