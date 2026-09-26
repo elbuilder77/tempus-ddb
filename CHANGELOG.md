@@ -9,6 +9,7 @@ crates.io**; 0.5.3 ships the same runtime code with a repaired release pipeline.
 ### Fixed
 - **Release pipeline**: Four action pins in `release.yml` pointed to commit SHAs that do not exist upstream (`PyO3/maturin-action`, `actions/download-artifact`, `actions/attest-build-provenance`, `actions/attest-sbom`), which aborted the `v0.5.2` release at job setup. All pins now resolve to real tags (maturin-action v1.51.0, download-artifact v7.0.0, attest-build-provenance v2.4.0, attest-sbom v2.4.0).
 - **Tag-exact builds**: Every release checkout now uses the release tag as `ref`, so manual re-runs build the tagged source instead of the dispatching branch.
+- **Wheel test gate**: The pre-publish wheel tests imported the uncompiled `python/tempus_ddb` source (via pytest `pythonpath` and `tests/test_cli.py`) instead of the installed wheel, so they could never pass. The gate now removes the source package first and tests only the built wheel.
 - **PyPI publishing**: Removed the unused `PYPI_API_TOKEN` password input; publication relies on Trusted Publishing (OIDC) only, as documented.
 - **crates.io publishing**: The workflow read a `CRATES_IO_TOKEN` secret that was never configured, so the crate was silently skipped. It now uses `CARGO_API_TOKEN` in a separate job that cannot block the PyPI release.
 
