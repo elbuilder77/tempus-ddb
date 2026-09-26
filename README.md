@@ -32,7 +32,7 @@ pip install tempus-ddb
 ---
 </div>
 
-> **Status: beta (`0.5.2` milestone line).** Signed policy, identity lifecycle,
+> **Status: beta (`0.5.3` milestone line).** Signed policy, identity lifecycle,
 > Vault-backed signing, mediated executor runtime (GitHub, HTTP, Slack, Payment),
 > hash-linked event streaming, and signed monotonic checkpoints are implemented.
 > Distributed multi-container gate service is in progress (0.6).
@@ -99,7 +99,7 @@ Inspect how Tempus binds the entire lifecycle (Intent ➔ Authorization ➔ Exec
 
 ---
 
-The `0.5.2` implementation establishes the local permit protocol, signed policy
+The `0.5.3` implementation establishes the local permit protocol, signed policy
 bundles, rotation and revocation, unified mediated `ExecutorRuntime` (GitHub, HTTP/Webhooks, Slack, and Pluggable Payments), Vault Transit signing, single-instance replay protection, and cryptographically signed monotonic checkpoints for verifiable disaster recovery. Read
 [THREAT_MODEL.md](THREAT_MODEL.md) before relying on the current security boundary.
 
@@ -172,9 +172,9 @@ python -m pip install tempus-ddb
 ```
 
 ### 2. From GitHub Release Wheels & SBOM
-Download the pre-built native wheel matching your platform or the SPDX SBOM from [GitHub Releases v0.5.2](https://github.com/elbuilder77/tempus-ddb/releases/tag/v0.5.2):
+Download the pre-built native wheel matching your platform or the SPDX SBOM from [GitHub Releases v0.5.3](https://github.com/elbuilder77/tempus-ddb/releases/tag/v0.5.3):
 ```bash
-pip install ./tempus_ddb-0.5.2-<platform>.whl
+pip install ./tempus_ddb-0.5.3-<platform>.whl
 ```
 
 ### 3. From Source (Development)

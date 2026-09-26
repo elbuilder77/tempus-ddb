@@ -1,6 +1,22 @@
 # Changelog
 
-## [0.5.2] - 2026-09-12
+## [0.5.3] - 2026-09-26
+
+First published build of the 0.5.2 security line. The `v0.5.2` release workflow
+failed before building any artifact, so **0.5.2 was never published to PyPI or
+crates.io**; 0.5.3 ships the same runtime code with a repaired release pipeline.
+
+### Fixed
+- **Release pipeline**: Four action pins in `release.yml` pointed to commit SHAs that do not exist upstream (`PyO3/maturin-action`, `actions/download-artifact`, `actions/attest-build-provenance`, `actions/attest-sbom`), which aborted the `v0.5.2` release at job setup. All pins now resolve to real tags (maturin-action v1.51.0, download-artifact v7.0.0, attest-build-provenance v2.4.0, attest-sbom v2.4.0).
+- **Tag-exact builds**: Every release checkout now uses the release tag as `ref`, so manual re-runs build the tagged source instead of the dispatching branch.
+- **PyPI publishing**: Removed the unused `PYPI_API_TOKEN` password input; publication relies on Trusted Publishing (OIDC) only, as documented.
+- **crates.io publishing**: The workflow read a `CRATES_IO_TOKEN` secret that was never configured, so the crate was silently skipped. It now uses `CARGO_API_TOKEN` in a separate job that cannot block the PyPI release.
+
+### Changed
+- Packaged sources no longer include the `launch/` marketing drafts removed after the `v0.5.2` tag.
+- `python-dotenv` minimum raised to `>=1.2.3` (Dependabot #29).
+
+## [0.5.2] - 2026-09-12 (not published)
 
 ### Security
 - **Delegation Chain & Trusted Root Verification (Finding 1)**: Added `trusted_roots` table with single-root constraint; enforce recursive delegation chain checks ensuring all registered identities trace to an established root.
