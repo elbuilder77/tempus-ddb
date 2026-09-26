@@ -101,7 +101,11 @@ jobs:
         shell: bash
         run: |
           pip install dist/*.whl
-          python -c "import tempus_ddb; print('tempus_ddb version:', tempus_ddb.__version__)"
+          # pyproject's pytest `pythonpath` and tests/test_cli.py both put python/
+          # on the import path; drop the uncompiled source package so every test
+          # (and subprocess) can only import the installed wheel.
+          rm -rf python/tempus_ddb
+          python -c "import tempus_ddb; print('tempus_ddb version:', tempus_ddb.__version__, tempus_ddb.__file__)"
           pip install pytest pytest-asyncio
           pytest tests/ -p no:cacheprovider
 
