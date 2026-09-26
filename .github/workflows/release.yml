@@ -6,21 +6,25 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Release tag name (e.g. v0.5.2)'
+        description: 'Release tag name (e.g. v0.5.3)'
         required: false
-        default: 'v0.5.2'
+        default: 'v0.5.3'
 
 permissions:
   contents: read
   id-token: write
 
 env:
-  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag_name || 'v0.5.2' }}
+  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag_name || 'v0.5.3' }}
 
 concurrency:
-  group: release-${{ github.event.release.tag_name || inputs.tag_name || 'v0.5.2' }}
+  group: release-${{ github.event.release.tag_name || inputs.tag_name || 'v0.5.3' }}
   cancel-in-progress: false
 
+# Every checkout pins `ref` to the release tag so a manual re-run builds exactly
+# the tagged source instead of the branch the workflow was dispatched from.
+# Action SHAs must resolve to real upstream tags; verify with
+# `gh api repos/<owner>/<action>/commits/<sha>` before changing them.
 jobs:
   build:
     name: Build wheels on ${{ matrix.os }}
@@ -40,8 +44,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_TAG }}
           persist-credentials: false
-      - uses: PyO3/maturin-action@f688e17dbba0d2d385624733c7f960f2523cb7a5 # v1.45.0
+      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.target }}
           args: --release --out dist
@@ -59,8 +64,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_TAG }}
           persist-credentials: false
-      - uses: PyO3/maturin-action@f688e17dbba0d2d385624733c7f960f2523cb7a5 # v1.45.0
+      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           command: sdist
           args: --out dist
@@ -81,11 +87,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_TAG }}
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.11'
-      - uses: actions/download-artifact@cc203385981b70ca67e1ab38864c36ff8d29780e # v4.1.9
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: wheels-${{ matrix.os }}-*
           path: dist
@@ -105,6 +112,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_TAG }}
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -124,13 +132,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_TAG }}
           persist-credentials: false
-      - uses: actions/download-artifact@cc203385981b70ca67e1ab38864c36ff8d29780e # v4.1.9
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: wheels-*
           path: dist
           merge-multiple: true
-      - uses: actions/download-artifact@cc203385981b70ca67e1ab38864c36ff8d29780e # v4.1.9
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: sdist
           path: dist
@@ -140,16 +149,16 @@ jobs:
           --version "${{ env.RELEASE_TAG }}"
           --output "sbom/tempus-ddb-${{ env.RELEASE_TAG }}.spdx.json"
       - name: Attest release provenance
-        uses: actions/attest-build-provenance@c074443f1a5fb4aee8390470235227a49f457a51 # v2.2.3
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
           subject-path: dist/*
       - name: Attest release SBOM
-        uses: actions/attest-sbom@2e25287f34149fa8178822998a44fb6b999dbf86 # v2.2.3
+        uses: actions/attest-sbom@bd218ad0dbcb3e146bd073d1d9c6d78e08aa8a0b # v2.4.0
         with:
           subject-path: dist/*
           sbom-path: sbom/tempus-ddb-${{ env.RELEASE_TAG }}.spdx.json
       - name: Upload to GitHub Release
-        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2.7.0
+        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # 2.11.5
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: dist/*
@@ -157,33 +166,50 @@ jobs:
           tag: ${{ env.RELEASE_TAG }}
           overwrite: true
       - name: Upload SBOM to GitHub Release
-        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2.7.0
+        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # 2.11.5
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: sbom/tempus-ddb-${{ env.RELEASE_TAG }}.spdx.json
           tag: ${{ env.RELEASE_TAG }}
           overwrite: true
-      - name: Extract version from Cargo.toml
-        id: version
-        run: |
-          VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('Cargo.toml', 'rb'))['package']['version'])")
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
-      - name: Publish to crates.io
-        if: steps.version.outputs.tag == env.RELEASE_TAG
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
-        run: |
-          if [ -n "$CARGO_REGISTRY_TOKEN" ]; then
-            cargo publish
-          else
-            echo "CRATES_IO_TOKEN is not configured; skipping crates.io publish."
-          fi
 
-      # Publish to PyPI using Trusted Publishing (OIDC) or PYPI_API_TOKEN secret
+      # PyPI Trusted Publishing (OIDC): no API token; the PyPI project trusts
+      # this repository's release.yml workflow.
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: dist/
           skip-existing: true
-          password: ${{ secrets.PYPI_API_TOKEN }}
+
+  # Separate job so a crates.io failure (e.g. an expired token) never blocks the
+  # PyPI publication above and still shows up as a failed job.
+  publish-crates:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [release]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      - name: Check Cargo.toml version matches release tag
+        id: version
+        run: |
+          VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('Cargo.toml', 'rb'))['package']['version'])")
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Publish to crates.io
+        if: steps.version.outputs.tag == env.RELEASE_TAG
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_API_TOKEN }}
+        run: |
+          if [ -n "$CARGO_REGISTRY_TOKEN" ]; then
+            cargo publish --locked
+          else
+            echo "CARGO_API_TOKEN is not configured; skipping crates.io publish."
+          fi
