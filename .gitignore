@@ -4,8 +4,12 @@
 !.env.example
 *.pem
 *.key
+*.priv
+*.pkcs8
 *.p12
 *.pfx
+*.crt
+*.cert
 *.jks
 *.keystore
 *.keys.json
@@ -15,8 +19,11 @@ agent_wallet.json
 server_secret.key
 credentials*.json
 *.secrets.json
+*.token
+id_rsa*
+id_ed25519*
 
-# Local databases and runtime state
+# Local databases, persistence and runtime state
 *.db
 *.db-*
 *.sqlite
@@ -24,6 +31,10 @@ credentials*.json
 *.wal
 *.shm
 *.journal
+tempus.db*
+.local/
+/data/
+data/
 
 # Rust build output
 /target/
@@ -100,6 +111,7 @@ coverage.xml
 .DS_Store
 Thumbs.db
 Desktop.ini
+desktop.ini
 *.pdb
 *.pyd
 *.so
