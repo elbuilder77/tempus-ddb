@@ -513,7 +513,7 @@ mod tests {
         bits.extend_from_slice(&numbers);
         let algorithm = tlv(
             der::SEQUENCE,
-            &[tlv(der::OID, OID_RSA_ENCRYPTION), tlv(der::NULL, &[])].concat(),
+            &[tlv(der::OID, OID_RSA_ENCRYPTION), tlv(0x05, &[])].concat(),
         );
         tlv(
             der::SEQUENCE,

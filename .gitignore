@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 *.pem
+!tests/vectors/anchor/*.pem
 *.key
 *.priv
 *.pkcs8
