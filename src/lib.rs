@@ -34,10 +34,15 @@ use pyo3::exceptions::{PyPermissionError, PyRuntimeError};
 #[cfg(not(target_arch = "wasm32"))]
 use pyo3::prelude::*;
 
+mod anchor;
 mod b2a;
+mod der;
 mod events;
 mod phase3;
+mod rekor;
+mod sigverify;
 mod strict_json;
+mod tsa;
 
 #[cfg(not(target_arch = "wasm32"))]
 use phase3::SignerBackend;
@@ -556,6 +561,40 @@ pub fn verify_bundle(
     b2a::verify_bundle_pinned(bundle_json, gate_public_key, executor_public_keys)
 }
 
+/// [`verify_bundle`] with a `tempus.anchor.v1` for the bundle's checkpoint. `roots_json` is
+/// `{"rekor_public_keys": [...], "tsa_roots": [...]}`, chosen by the verifier; without a
+/// pinned root a proof is `NOT_CHECKED`, never `VERIFIED`.
+pub fn verify_bundle_anchored(
+    bundle_json: &str,
+    gate_public_key: &str,
+    executor_public_keys: &[String],
+    anchor_json: &str,
+    roots_json: &str,
+) -> Result<String, String> {
+    b2a::verify_bundle_anchored(
+        bundle_json,
+        gate_public_key,
+        executor_public_keys,
+        Some(anchor_json),
+        roots_json,
+    )
+}
+
+/// Verify a `tempus.anchor.v1` against its checkpoint, returning
+/// `tempus.anchor-verification.v1`. See [`verify_bundle_anchored`] for `roots_json`.
+pub fn verify_anchor(
+    anchor_json: &str,
+    checkpoint_json: &str,
+    roots_json: &str,
+) -> Result<String, String> {
+    anchor::verify_anchor(anchor_json, checkpoint_json, roots_json)
+}
+
+/// What an anchor commits to: SHA-256 of the canonical signed checkpoint, signature included.
+pub fn anchor_checkpoint_digest(checkpoint_json: &str) -> Result<String, String> {
+    anchor::checkpoint_digest(checkpoint_json)
+}
+
 /// Verify a checkpoint and its event stream with no database. The signer must
 /// equal `expected_public_key`, which the verifier supplies out of band.
 pub fn verify_checkpoint(
@@ -639,19 +678,73 @@ pub fn py_verify_receipt(
 /// Verify an evidence bundle without a database, against a pinned gate key.
 #[cfg(not(target_arch = "wasm32"))]
 #[pyfunction]
-#[pyo3(name = "verify_bundle", signature = (bundle_json, gate_public_key, executor_public_keys=None))]
+#[pyo3(name = "verify_bundle", signature = (bundle_json, gate_public_key, executor_public_keys=None, anchor_json=None, anchor_roots_json=None))]
 #[allow(clippy::useless_conversion)]
 pub fn py_verify_bundle(
     bundle_json: &str,
     gate_public_key: &str,
     executor_public_keys: Option<Vec<String>>,
+    anchor_json: Option<&str>,
+    anchor_roots_json: Option<&str>,
 ) -> PyResult<String> {
-    verify_bundle(
+    b2a::verify_bundle_anchored(
         bundle_json,
         gate_public_key,
         &executor_public_keys.unwrap_or_default(),
+        anchor_json,
+        anchor_roots_json.unwrap_or_default(),
     )
     .map_err(PyRuntimeError::new_err)
+}
+
+/// Verify a `tempus.anchor.v1` against its checkpoint, with no database and no network.
+#[cfg(not(target_arch = "wasm32"))]
+#[pyfunction]
+#[pyo3(name = "verify_anchor", signature = (anchor_json, checkpoint_json, roots_json=None))]
+#[allow(clippy::useless_conversion)]
+pub fn py_verify_anchor(
+    anchor_json: &str,
+    checkpoint_json: &str,
+    roots_json: Option<&str>,
+) -> PyResult<String> {
+    verify_anchor(anchor_json, checkpoint_json, roots_json.unwrap_or_default())
+        .map_err(PyRuntimeError::new_err)
+}
+
+/// What an anchor commits to: SHA-256 of the canonical signed checkpoint.
+#[cfg(not(target_arch = "wasm32"))]
+#[pyfunction]
+#[pyo3(name = "anchor_checkpoint_digest")]
+#[allow(clippy::useless_conversion)]
+pub fn py_anchor_checkpoint_digest(checkpoint_json: &str) -> PyResult<String> {
+    anchor_checkpoint_digest(checkpoint_json).map_err(PyRuntimeError::new_err)
+}
+
+/// The Rekor entry to submit for a digest, signed by a key that exists for this call.
+#[cfg(not(target_arch = "wasm32"))]
+#[pyfunction]
+#[pyo3(name = "anchor_rekor_entry")]
+#[allow(clippy::useless_conversion)]
+pub fn py_anchor_rekor_entry(digest_hex: &str) -> PyResult<String> {
+    anchor::rekor_entry_request(digest_hex).map_err(PyRuntimeError::new_err)
+}
+
+/// A `TimeStampReq` for a digest: `{"request": base64, "nonce": hex}`.
+#[cfg(not(target_arch = "wasm32"))]
+#[pyfunction]
+#[pyo3(name = "anchor_tsa_request")]
+#[allow(clippy::useless_conversion)]
+pub fn py_anchor_tsa_request(digest_hex: &str) -> PyResult<String> {
+    anchor::tsa_request(digest_hex).map_err(PyRuntimeError::new_err)
+}
+
+/// The token inside a base64 `TimeStampResp`, after checking its status and nonce.
+#[cfg(not(target_arch = "wasm32"))]
+#[pyfunction]
+#[pyo3(name = "anchor_tsa_token")]
+#[allow(clippy::useless_conversion)]
+pub fn py_anchor_tsa_token(response_base64: &str, nonce_hex: &str) -> PyResult<String> {
+    anchor::tsa_token(response_base64, nonce_hex).map_err(PyRuntimeError::new_err)
 }
 
 /// Verify a checkpoint and event stream without a database, against a pinned key.
@@ -684,6 +777,11 @@ fn _tempus_ddb(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_verify_bundle, m)?)?;
     m.add_function(wrap_pyfunction!(py_verify_checkpoint, m)?)?;
     m.add_function(wrap_pyfunction!(py_bundle_digest, m)?)?;
+    m.add_function(wrap_pyfunction!(py_verify_anchor, m)?)?;
+    m.add_function(wrap_pyfunction!(py_anchor_checkpoint_digest, m)?)?;
+    m.add_function(wrap_pyfunction!(py_anchor_rekor_entry, m)?)?;
+    m.add_function(wrap_pyfunction!(py_anchor_tsa_request, m)?)?;
+    m.add_function(wrap_pyfunction!(py_anchor_tsa_token, m)?)?;
     m.add_class::<TempusDDB>()?;
     m.add_class::<TempusExecutor>()?;
     m.add_function(wrap_pyfunction!(gen_keys, m)?)?;
@@ -732,6 +830,39 @@ mod wasm {
     ) -> Result<String, JsValue> {
         let executors = executor_keys(executor_public_keys)?;
         crate::verify_bundle(bundle_json, gate_public_key, &executors)
+            .map_err(|e| JsValue::from_str(&e))
+    }
+
+    /// [`verify_bundle`] with a `tempus.anchor.v1` and the trust roots the reader pinned.
+    /// An empty `anchor_json` means no anchor was given.
+    #[wasm_bindgen]
+    pub fn verify_bundle_anchored(
+        bundle_json: &str,
+        gate_public_key: &str,
+        executor_public_keys: &str,
+        anchor_json: &str,
+        roots_json: &str,
+    ) -> Result<String, JsValue> {
+        let executors = executor_keys(executor_public_keys)?;
+        let anchor = Some(anchor_json).filter(|text| !text.trim().is_empty());
+        crate::b2a::verify_bundle_anchored(
+            bundle_json,
+            gate_public_key,
+            &executors,
+            anchor,
+            roots_json,
+        )
+        .map_err(|e| JsValue::from_str(&e))
+    }
+
+    /// Verify a `tempus.anchor.v1` against its checkpoint and the reader's trust roots.
+    #[wasm_bindgen]
+    pub fn verify_anchor(
+        anchor_json: &str,
+        checkpoint_json: &str,
+        roots_json: &str,
+    ) -> Result<String, JsValue> {
+        crate::verify_anchor(anchor_json, checkpoint_json, roots_json)
             .map_err(|e| JsValue::from_str(&e))
     }
 
