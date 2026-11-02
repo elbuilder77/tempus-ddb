@@ -452,6 +452,10 @@ fn a_bundle_says_what_an_anchor_adds() {
     assert_eq!(verified["checks"]["anchor"], "VERIFIED");
     assert_eq!(verified["anchor"]["anchored_at"], at * 1_000_000);
     assert!(verified["anchor"].get("schema_version").is_none());
+    // Here the gate's signature was checked too.
+    assert!(!verified["trust"]["not_checked"]
+        .to_string()
+        .contains("CHECKPOINT_SIGNATURE"));
     assert!(!verified["trust"]["not_checked"]
         .to_string()
         .contains("CHECKPOINT_TIME"));

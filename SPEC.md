@@ -196,7 +196,8 @@ because read in hundredths `"500"` yen would meet a limit as 50000:
 That refusal is for a new install. A verifier MUST NOT apply it to a bundle it reads.
 
 **Rules.** `rules` is a list of up to 32 `{"id", "logic"}` objects, with ids matching
-`[a-z0-9._-]{1,64}` and unique, and each `logic` holding up to 256 nodes and 16 levels. A bundle
+`[a-z0-9._-]{1,64}` and unique, and each `logic` holding up to 256 nodes (a path in `missing` is
+one) and 16 levels. A bundle
 with no `rules` has exactly the bytes it had before they existed. A rule sees this and nothing
 else, so anyone can rebuild it from the permit:
 
@@ -238,6 +239,10 @@ a failure; a branch not taken cannot fail. Every rule runs. A rule that is `fals
 `POLICY_RULES_DENIED`, a rule that fails adds `POLICY_RULES_ERROR`, each at most once and in that
 order, after any other policy reason. Either makes the decision `BLOCKED`, and a verifier
 re-executes the rules when it reproduces the decision.
+
+An implementation MUST bound the work a rule list can cause. The reference implementation reads
+at most 64 MiB of rule and context text per evaluation, and past that a rule fails. A policy
+anywhere near that is not portable.
 
 ### 3.5 `tempus.policy-evidence.v1` — why the decision came out that way
 
@@ -419,13 +424,15 @@ same key, whose size and root MUST equal the proof's. The proof's time is `integ
 An `rfc3161` proof holds `tsa_url` (informational) and `token` (base64 of a DER TimeStampToken)
 whose imprint is SHA-256 of the raw digest bytes. A verifier MUST check the imprint; then, with
 pinned roots, MUST check the signed attributes (`contentType`, `messageDigest`, a signing
-certificate attribute), the signature over them, the signer's critical `timeStamping` extended
-key usage, and a chain built only from the token's certificates up to a pinned root: issuer and
+certificate attribute), the signature over them, the signer's critical extended key usage, naming
+`timeStamping` and nothing else, and a chain built only from the token's certificates up to a pinned root: issuer and
 subject bytes equal, signature valid, issuer a CA allowed to sign certificates,
-`pathLenConstraint` respected, no unknown critical extension, every certificate valid *at the
-token's time*, not today, so old evidence keeps verifying. The proof's time is the token's
-`genTime`. Accepted algorithms are ECDSA P-256 and P-384 with SHA-256, SHA-384 or SHA-512, and
-RSA PKCS#1 v1.5 with those hashes and a modulus of at least 2048 bits. Anything else is
+`pathLenConstraint` respected, no unknown critical extension, every certificate valid *at
+`genTime`*, not today, so old evidence keeps verifying. A certificate that could not serve is
+passed over in favour of one that can. The proof's time is the latest the token allows: `genTime`
+plus its `accuracy`, rounded up to a whole second. Accepted algorithms are ECDSA P-256 and P-384
+with SHA-256, SHA-384 or SHA-512, and RSA PKCS#1 v1.5 with those hashes, a modulus of 2048 to 8192
+bits and an odd public exponent above 1 of at most 8 bytes. Anything else is
 `ANCHOR_TSA_ALGORITHM_UNSUPPORTED`.
 
 Trust roots are the reader's: `{"rekor_public_keys": ["<PEM or base64 SPKI>"], "tsa_roots":
@@ -449,7 +456,7 @@ Returned by `verify_receipt` (permit, outcome or trace), `verify_trace` and
 | `phase` | `AUTHORIZED` (permit, unexpired, no outcome), `EXPIRED`, `COMPLETED`, `BLOCKED`, or `UNKNOWN` when the document could not be parsed |
 | `decision`, `execution_status`, `output_degraded` | What the signed documents say; `null` unless `status` is `VERIFIED`, so a reader never takes a value from a document that failed |
 | `checks.authorization`, `checks.execution` | `VERIFIED`, `FAILED` or `NOT_PRESENT`; bundles add `checks.checkpoint` and `checks.anchor` (`VERIFIED`, `FAILED`, `NOT_CHECKED`, or `NOT_PRESENT` when no anchor was given) |
-| `anchor` | With an anchor: the result of 4.3 without `schema_version`. A failed anchor makes the whole verdict `INVALID` |
+| `anchor` | With an anchor: the result of 4.3 without `schema_version` and `not_checked`, which joins `trust.not_checked`. A failed anchor makes the whole verdict `INVALID` |
 | `errors` | Codes, possibly with a parenthesised path; empty when `VERIFIED` |
 | `trust.mode` | `PINNED_GATE_KEY` (independent) or `DATABASE_SELF_ATTESTED` (not independent; the CLI warns) |
 | `trust.independent` | `true` only with a pinned key |
@@ -496,7 +503,7 @@ Returned by `verify_anchor`.
 | `anchored_at` | Microseconds: the earliest verified proof's time. `null` unless `VERIFIED` |
 | `proofs` | `{backend, status, anchored_at, errors}` per proof; `status` is `VERIFIED`, `NOT_CHECKED` or `FAILED` |
 | `errors` | Document and proof errors together; empty unless `INVALID` |
-| `not_checked` | What this result leaves open, in the form of `trust.not_checked` |
+| `not_checked` | What this result leaves open, in the form of `trust.not_checked`. Always `CHECKPOINT_SIGNATURE`: this result dates these bytes, and only verifying a bundle, with the gate's key, shows a gate signed them |
 
 ## 5. What verification means
 

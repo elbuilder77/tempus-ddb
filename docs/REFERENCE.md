@@ -843,14 +843,21 @@ tempus verify-bundle --bundle evidence.json --gate-public-key <64-hex|file> \
 - **Backends:** Rekor (`https://rekor.sigstore.dev`, or `--rekor-url`) and RFC 3161 (DigiCert by
   default; `--tsa-url` or `TEMPUS_TSA_URL`). Both are asked by default because they fail
   independently; narrow it with `--backend`. A Rekor entry is public and permanent.
-- **Retrying:** `anchor create` checks each proof before keeping it and merges into an existing
-  `--out` for the same checkpoint. A backend that fails leaves the other's proof written and exits
-  non-zero, so the next cron run only fills the gap.
+- **Retrying:** `anchor create` merges into an existing `--out` for the same checkpoint. A backend
+  that fails leaves the other's proof written and exits non-zero, so the next cron run only fills
+  the gap.
+- **Checking what you created:** with no roots, `anchor create` can only check that a proof is about
+  this checkpoint, and a token's own signature. Run `anchor verify` with your roots afterwards. A
+  proof with a bad log signature, say from a wrong `--rekor-url`, stays in the file until you remove
+  it.
 - **Roots are yours to pin.** With none, the anchor reads `NOT_CHECKED` and claims no date.
   `--require-anchor` then fails. One failed proof makes the verdict `INVALID`, however good the
   others are.
+- **The date:** the latest the proof allows. For a timestamp token that is its time plus its stated
+  accuracy, rounded up to a whole second.
 - **What it does not show:** that the checkpoint covers everything, or that no later checkpoint
-  exists. Revocation of the timestamp certificates cannot be checked offline, and the verifier
+  exists. `anchor verify` dates these bytes and does not check that a gate signed them
+  (`CHECKPOINT_SIGNATURE` in its `not_checked`). `verify-bundle` checks both. Revocation of the timestamp certificates cannot be checked offline, and the verifier
   lists that under `trust.not_checked` (`TSA_REVOCATION`).
 
 The browser verifier reads anchors too. Exit codes for `anchor verify`: 0 `VERIFIED`, 2 any other
@@ -923,7 +930,7 @@ for earlier versions can hit `NON_EXACT_NUMBER` (the message names the path, for
 | What you send | Result | Fix |
 | --- | --- | --- |
 | `requested_at` from `time.time()` (a float, seconds) | `NON_EXACT_NUMBER ... $.requested_at` | An integer in microseconds: `time.time_ns() // 1000` |
-| `money.amount` as a number (`25.5`) | `NON_EXACT_NUMBER ... $.money.amount`; an integer (`25`) gives `money.amount must be a decimal string` | A string with at most two decimals: `"25.50"` (or an integer `amount_minor` in minor units; if you send both, or both `currency` and `asset`, they must agree or the intent is refused with `TEMPUS_INVALID_CONTRACT`) |
+| `money.amount` as a number (`25.5`) | `NON_EXACT_NUMBER ... $.money.amount`; an integer (`25`) gives `money.amount must be a decimal string` | A string with at most the currency's decimals: `"25.50"` (or an integer `amount_minor` in minor units; if you send both, or both `currency` and `asset`, they must agree or the intent is refused with `TEMPUS_INVALID_CONTRACT`) |
 | A float in `input` (`{"price": 19.99}`) | `NON_EXACT_NUMBER ... $.input.price` (it used to produce a signed `BLOCKED`) | A string (`"19.99"`) or an integer in minor units (`1999`) |
 | A decimal in agent `metadata`, a policy or an outcome `output` | `NON_EXACT_NUMBER` at its path | A string (`"0.5"`); policy limits such as `max_money_amount_minor` are already integers |
 | `NaN`, `Infinity`, `1e400` or `-0` from the CLI (`--intent`, `--outcome`, `--policy`, `--metadata`) | `NON_EXACT_NUMBER` (raw text given to the Python/Rust API: `1e400` is `NON_EXACT_NUMBER`; `NaN`/`Infinity` are "must be valid JSON", they are not JSON) | Send a string, or write `0` for `-0` |

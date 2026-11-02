@@ -186,7 +186,7 @@ function formatMicros(micros) {
 function renderResult(result, evidence, kind) {
   const verdict = result.status;
   const phaseText = { AUTHORIZED: 'permit issued, no outcome in this file', COMPLETED: 'permit issued and outcome recorded', EXPIRED: 'permit expired without an outcome in this file', BLOCKED: 'the gate signed a denial' };
-  const dated = result.anchor?.status === 'VERIFIED' ? ` This checkpoint existed no later than ${formatMicros(result.anchor.anchored_at)}.` : '';
+  const dated = verdict === 'VERIFIED' && result.anchor?.status === 'VERIFIED' ? ` This checkpoint existed no later than ${formatMicros(result.anchor.anchored_at)}.` : '';
   const message = verdict === 'VERIFIED'
     ? `Every signed document in this file checks out against the pinned gate key. Phase: ${result.phase} (${phaseText[result.phase] ?? result.phase}).${dated}`
     : 'This file is not valid evidence. At least one signed document does not match, or the file was changed after signing.';
@@ -209,13 +209,17 @@ function renderResult(result, evidence, kind) {
     const value = result.checks?.[name];
     if (value === undefined) continue;
     const [state, , label] = CHECK_STATES[value] ?? ['warn', '!', value];
-    const specific = CHECK_DETAILS[name]?.[value];
+    const specific = name === 'anchor' && value === 'VERIFIED' && verdict !== 'VERIFIED'
+      ? 'The proofs hold for the bytes in this file, but the file is not valid evidence, so no date is claimed.'
+      : CHECK_DETAILS[name]?.[value];
     checks.append(listItem(`${title} · ${label}`, specific ?? (value === 'NOT_PRESENT' ? `${title.toLowerCase()} is not in this file.` : detail), state));
   }
   for (const proof of result.anchor?.proofs ?? []) {
     const [state, , label] = CHECK_STATES[proof.status] ?? ['warn', '!', proof.status];
     const proofDetail = proof.status === 'VERIFIED'
-      ? `Says the checkpoint existed no later than ${formatMicros(proof.anchored_at)}.`
+      ? verdict === 'VERIFIED'
+        ? `Says the checkpoint existed no later than ${formatMicros(proof.anchored_at)}.`
+        : 'Holds for the bytes in this file. No date is claimed for a file that is not valid evidence.'
       : proof.status === 'NOT_CHECKED'
         ? 'Nothing you pinned can check this proof.'
         : `Does not verify: ${(proof.errors ?? []).join(', ')}.`;

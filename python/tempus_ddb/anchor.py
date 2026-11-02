@@ -213,6 +213,8 @@ def _start_document(checkpoint, digest, existing):
     held = _strict_loads(existing, "The existing anchor")
     if not isinstance(held, dict) or held.get("checkpoint_digest") != digest:
         raise AnchorError("the existing anchor belongs to another checkpoint")
+    if not isinstance(held.get("proofs"), list):
+        raise AnchorError("the existing anchor does not verify: it has no list of proofs")
     return held
 
 
@@ -228,7 +230,9 @@ def create_anchor(
     """Ask each backend for a proof. Returns ``(document, {backend: why it failed})``.
 
     A backend the ``existing`` document (JSON text) already holds is not asked again, so a
-    retry from cron only fills the gap. Every proof is checked before it is kept.
+    retry from cron only fills the gap. Every proof is checked before it is kept, as far as
+    that goes with no roots: that it is about this checkpoint, and a token's own signature. A
+    log's signatures need its key, so only ``verify_anchor`` with roots settles a Rekor proof.
     """
     checkpoint = checkpoint_from_text(checkpoint_text)
     checkpoint_json = json.dumps(checkpoint)

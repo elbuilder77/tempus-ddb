@@ -186,11 +186,13 @@ impl<'a> Certificate<'a> {
                 OID_EXT_EXTENDED_KEY_USAGE => {
                     let purposes = der::single(value)?;
                     let mut inner = nested(&purposes);
+                    let (mut named, mut count) = (false, 0);
                     while !inner.is_empty() {
-                        if inner.expect(der::OID)?.value == OID_KP_TIME_STAMPING {
-                            self.timestamping = true;
-                        }
+                        named |= inner.expect(der::OID)?.value == OID_KP_TIME_STAMPING;
+                        count += 1;
                     }
+                    // RFC 3161, section 2.3: timestamping, and nothing else.
+                    self.timestamping = named && count == 1;
                     self.eku_critical = critical;
                 }
                 OID_EXT_SUBJECT_KEY_ID => {
@@ -347,6 +349,8 @@ struct TstInfo<'a> {
     imprint_algorithm: &'a [u8],
     imprint: &'a [u8],
     gen_time: i64,
+    /// The latest moment `gen_time` can stand for, which is all a proof may claim.
+    latest: i64,
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))] // read when a token is first obtained
     nonce: Option<&'a [u8]>,
 }
@@ -362,19 +366,57 @@ fn parse_tst_info(raw: &[u8]) -> Result<TstInfo<'_>, DerError> {
     let imprint = fields.expect(der::SEQUENCE)?;
     fields.expect(der::INTEGER)?;
     let gen_time = fields.expect(der::GENERALIZED_TIME)?;
-    fields.optional(der::SEQUENCE)?; // accuracy
+    let accuracy = fields.optional(der::SEQUENCE)?;
     fields.optional(der::BOOLEAN)?; // ordering
     let nonce = fields.optional(der::INTEGER)?;
     let mut imprint_fields = nested(&imprint);
     let imprint_algorithm = algorithm_oid(&imprint_fields.expect(der::SEQUENCE)?)?;
     let hashed = imprint_fields.expect(der::OCTET_STRING)?.value;
     imprint_fields.finish()?;
+    let seconds = der::time_seconds(&gen_time)?;
     Ok(TstInfo {
         imprint_algorithm,
         imprint: hashed,
-        gen_time: der::time_seconds(&gen_time)?,
+        gen_time: seconds,
+        latest: seconds + allowance(accuracy.as_ref(), &gen_time)?,
         nonce: nonce.map(|nonce| nonce.value),
     })
+}
+
+/// RFC 3161, section 2.4.2: the time is `genTime` give or take its `accuracy`, so a token can
+/// only say "no later than" the two added. In whole seconds, rounding up, because the fraction
+/// `genTime` may hold is floored when it is read.
+fn allowance(accuracy: Option<&Tlv<'_>>, gen_time: &Tlv<'_>) -> Result<i64, DerError> {
+    let mut seconds = i64::from(gen_time.value.contains(&b'.'));
+    if let Some(accuracy) = accuracy {
+        let mut fields = nested(accuracy);
+        if let Some(whole) = fields.optional(der::INTEGER)? {
+            seconds += small_integer(whole.value)?;
+        }
+        let mut below_a_second = false;
+        for number in [0, 1] {
+            if let Some(part) = fields.optional(der::context_primitive(number))? {
+                let part = small_integer(part.value)?;
+                if part > 999 {
+                    return Err(DerError);
+                }
+                below_a_second |= part > 0;
+            }
+        }
+        fields.finish()?;
+        seconds += i64::from(below_a_second);
+    }
+    Ok(seconds)
+}
+
+/// The content of a small non-negative DER integer, however it is tagged. Enough for 136 years.
+fn small_integer(content: &[u8]) -> Result<i64, DerError> {
+    if content.is_empty() || content.len() > 5 || content[0] & 0x80 != 0 {
+        return Err(DerError);
+    }
+    Ok(content
+        .iter()
+        .fold(0, |total, byte| total << 8 | i64::from(*byte)))
 }
 
 /// Check the signed attributes; returns the hash of the signing-certificate attribute to
@@ -484,34 +526,32 @@ fn chain_reaches_root(
     let mut used: Vec<&[u8]> = vec![signer.raw];
     // `intermediates_below`: those between the leaf and the certificate considered as issuer.
     for intermediates_below in 0..MAX_CHAIN_DEPTH {
+        // One that could not serve is passed over, not fatal: a CA reissued under the same name
+        // and key can sit next to its expired self, in a token or among the pinned roots.
+        let may_issue = |issuer: &Certificate<'_>| {
+            issuer.valid_at(at)
+                && issuer.may_sign_certificates()
+                && issuer
+                    .path_len
+                    .is_none_or(|limit| intermediates_below <= limit)
+        };
         for root in roots {
             // The verifier may pin the certificate itself, at any level of the chain.
-            if root.raw == current.raw {
-                return root.valid_at(at).then_some(()).ok_or(CHAIN_INVALID);
-            }
-            if signed_by(current, root) {
-                let within_length = root
-                    .path_len
-                    .is_none_or(|limit| intermediates_below <= limit);
-                return (root.valid_at(at) && root.may_sign_certificates() && within_length)
-                    .then_some(())
-                    .ok_or(CHAIN_INVALID);
+            if (root.raw == current.raw && root.valid_at(at))
+                || (may_issue(root) && signed_by(current, root))
+            {
+                return Ok(());
             }
         }
         let next = token.certificates.iter().find(|candidate| {
             !used.contains(&candidate.raw)
                 && candidate.subject == current.issuer
+                && may_issue(candidate)
                 && signed_by(current, candidate)
         });
         let Some(issuer) = next else {
             break;
         };
-        let within_length = issuer
-            .path_len
-            .is_none_or(|limit| intermediates_below <= limit);
-        if !issuer.valid_at(at) || !issuer.may_sign_certificates() || !within_length {
-            return Err(CHAIN_INVALID);
-        }
         used.push(issuer.raw);
         current = issuer;
     }
@@ -575,7 +615,8 @@ fn check_token_codes(
     if !signer.valid_at(info.gen_time) {
         return Err(SIGNER_INVALID);
     }
-    let seconds = u64::try_from(info.gen_time).map_err(|_| TOKEN_MALFORMED)?;
+    u64::try_from(info.gen_time).map_err(|_| TOKEN_MALFORMED)?;
+    let seconds = u64::try_from(info.latest).map_err(|_| TOKEN_MALFORMED)?;
     if roots.is_empty() {
         return Ok(None);
     }
@@ -600,7 +641,11 @@ pub(crate) fn verify_proof(
     digest_hex: &str,
     roots: &[Vec<u8>],
 ) -> ProofVerdict {
-    let errors = unknown_fields(proof, path, PROOF_FIELDS);
+    let mut errors = unknown_fields(proof, path, PROOF_FIELDS);
+    // Informational and never trusted, but still what the contract says it is.
+    if proof.get("tsa_url").is_some_and(|value| !value.is_string()) {
+        errors.push(format!("ANCHOR_MALFORMED ({path}.tsa_url)"));
+    }
     let outcome = proof
         .get("token")
         .and_then(Value::as_str)
@@ -717,7 +762,8 @@ mod tests {
     fn real_sigstore_token_verifies_with_p384_over_sha256() {
         let token = token_of(SIGSTORE);
         let time = check_token_codes(&token, &digest(), &[root(SIGSTORE_ROOT)]).unwrap();
-        assert_eq!(time, Some(1_793_582_868));
+        // 2026-11-02T01:27:48Z with an accuracy of 1 second, as openssl prints it for this token.
+        assert_eq!(time, Some(1_793_582_869));
     }
 
     #[test]
@@ -842,7 +888,7 @@ mod tests {
         let proof = json!({"backend": "rfc3161", "tsa_url": "https://tsa.example", "token": token});
         let verdict = verify_proof(&proof, "anchor.proofs[1]", DIGEST, &[root(SIGSTORE_ROOT)]);
         assert_eq!(verdict.status, ProofStatus::Verified);
-        assert_eq!(verdict.time_seconds, Some(1_793_582_868));
+        assert_eq!(verdict.time_seconds, Some(1_793_582_869));
         let verdict = verify_proof(&proof, "anchor.proofs[1]", DIGEST, &[]);
         assert_eq!(verdict.status, ProofStatus::NotChecked);
 

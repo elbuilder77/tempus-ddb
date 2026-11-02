@@ -219,8 +219,10 @@ fn rsa_verify(
         return false;
     };
     let params = BoxedMontyParams::new(n);
+    // Only the exponent's own bits: `e` sits at the modulus's precision here, and walking all of
+    // those would make a public operation cost as much as a private one.
     let recovered = BoxedMontyForm::new(s, &params)
-        .pow(&e)
+        .pow_bounded_exp(&e, bit_length(exponent) as u32)
         .retrieve()
         .to_be_bytes();
     // `to_be_bytes` is padded to the limb size; the value itself fits in `size` bytes.

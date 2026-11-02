@@ -76,6 +76,8 @@ _DIGIT_WORDS = ("no", "one", "two", "three", "four", "five", "six", "seven", "ei
 # Same rule as the gate: an exact 3-letter code.
 _EXACT_CURRENCY = re.compile(r"[A-Z]{3}")
 _U64_MAX = 2**64 - 1
+# Told apart from None, which says the signed policy names no currency.
+_EXPONENTS_NOT_PASSED: Any = object()
 
 
 def _exponent(currency_exponents: Optional[Dict[str, Any]], asset: str) -> int:
@@ -289,7 +291,7 @@ class PaymentActionAdapter:
     def execute_action(
         self,
         intent: Dict[str, Any],
-        currency_exponents: Optional[Dict[str, Any]] = None,
+        currency_exponents: Optional[Dict[str, Any]] = _EXPONENTS_NOT_PASSED,
     ) -> ExecutionResult:
         # Enforce presence of universal money envelope
         money = intent.get("money")
@@ -297,6 +299,17 @@ class PaymentActionAdapter:
             raise PaymentExecutorError(
                 "Financial action requires a valid 'money' envelope in intent"
             )
+
+        if currency_exponents is _EXPONENTS_NOT_PASSED:
+            # An adapter wrapping this one, without `reads_currency_exponents`. An amount as
+            # written is sent as written, but spelling minor units takes the decimals the policy
+            # evaluated: guessing two could pay ten times too much.
+            if "amount" not in money:
+                raise PaymentExecutorError(
+                    "an amount_minor intent needs the signed policy's currency_exponents: "
+                    "set reads_currency_exponents on the adapter calling this one and pass them"
+                )
+            currency_exponents = None
 
         # The same reading the policy evaluated, never a field it skipped.
         amount, asset = canonical_money(money, currency_exponents)

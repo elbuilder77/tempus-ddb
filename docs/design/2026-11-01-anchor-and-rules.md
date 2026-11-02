@@ -84,8 +84,9 @@ non-exact numbers refused).
 - **RFC 3161.** A `TimeStampReq` with SHA-256, a random nonce and `certReq = true`. The
   response must be granted and echo the nonce; the token is stored.
 
-`tempus anchor create` checks every proof it receives before writing it, and merges into an
-existing `--out` file for the same checkpoint, keeping proofs it already holds. A failed
+`tempus anchor create` checks every proof it receives as far as it can with no roots: that it is
+about this checkpoint, and a token's own signature. A log's signatures need its key, so only
+verifying with roots settles a Rekor proof. It merges into an existing `--out` file for the same checkpoint, keeping proofs it already holds. A failed
 backend leaves the others written and exits non-zero, so a cron retry fills in the gap.
 
 ## 4. Verification
@@ -121,16 +122,17 @@ RFC 3161 proof:
    checked against the signer's certificate. The older SHA-1 form is accepted without being
    recomputed: the certificate used is authenticated by the chain below in any case.
 3. The signature over the signed attributes verifies with the signer's certificate, which
-   must carry the critical `timeStamping` extended key usage.
+   must carry the critical extended key usage, naming `timeStamping` and nothing else.
 4. The chain, built only from the token's certificates, reaches a pinned root. Each link:
    issuer and subject bytes equal, signature verifies, issuer is a CA allowed to sign
    certificates, `pathLenConstraint` respected, no unknown critical extension, every
    certificate valid *at `genTime`*, not today, so old evidence keeps verifying.
 
-The time is `genTime`.
+The time is the latest the token allows: `genTime` plus its `accuracy`, rounded up to a whole
+second. Certificates are judged at `genTime` itself.
 
 Accepted algorithms: ECDSA P-256 and P-384 with SHA-256/384/512; RSA PKCS#1 v1.5 with
-SHA-256/384/512 and a modulus of 2048 bits or more. RSA-PSS, SHA-1 signatures and anything
+SHA-256/384/512, a modulus of 2048 to 8192 bits and an odd exponent above 1 of at most 8 bytes. RSA-PSS, SHA-1 signatures and anything
 else are `ANCHOR_TSA_ALGORITHM_UNSUPPORTED`.
 
 Both proofs: the time must not be more than 300 s before `created_at`
@@ -149,7 +151,7 @@ sets the bound with `--anchored-before`.
 | `anchored_at` | Microseconds. The earliest verified proof's time; `null` unless `VERIFIED` |
 | `proofs[]` | `{backend, status, anchored_at, errors}` per proof; `status` is `VERIFIED`, `NOT_CHECKED` or `FAILED` |
 | `errors` | Document and proof errors together; empty unless `INVALID` |
-| `not_checked` | What the result leaves open, in the form of `trust.not_checked` |
+| `not_checked` | What the result leaves open, in the form of `trust.not_checked`. Always `CHECKPOINT_SIGNATURE`: only verifying a bundle shows a gate signed these bytes |
 
 `verify_bundle` with an anchor adds to `tempus.trace-verification.v1`:
 
@@ -267,8 +269,10 @@ so `{"if": [{"!": {"missing": ["money"]}}, {"<=": [{"var": "money.amount_minor"}
 works without money. It computes nothing itself. Every value comes from `jsonlogic-fast`, so
 there remains one policy evaluator. The evaluator parses its context for every node it is asked
 about, so each rule gets only the paths it names, and an input of megabytes it never reads costs
-nothing. A verifier also reaches this with a bundle it has already refused, so a rule outside the
-grammar never reaches the evaluator, whoever signed it.
+nothing. What a rule does read is charged against 64 MiB of rule and context text per evaluation,
+and past that it fails, so a hostile bundle costs its reader a bounded amount. A verifier also
+reaches this with a bundle it has already refused, so a rule outside the grammar never reaches the
+evaluator, whoever signed it.
 
 Dependency: `jsonlogic-fast = "0.1.7"`, the published version. Its `evaluate` is all this needs,
 and 0.2.0 is not on crates.io.

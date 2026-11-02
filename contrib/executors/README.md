@@ -164,8 +164,9 @@ tempus-payment-executor \
   the signed policy, as the gate does, so a currency has the decimals the policy gives it and two
   otherwise. It sends `amount` as written, and spells an `amount_minor`-only intent in that
   currency's decimals (`500` JPY as `"500"`, `1234` KWD as `"1.234"`). An adapter of your own that
-  reads amounts sets `reads_currency_exponents = True` and takes `currency_exponents` in
-  `execute_action`.
+  reads amounts, or wraps this one, sets `reads_currency_exponents = True`, takes
+  `currency_exponents` in `execute_action` and passes them on. Without them this adapter refuses an
+  intent holding only `amount_minor`, because it cannot know how to spell it.
 - `money.beneficiary` must be a non-empty string; it is paid exactly as written.
 - An ambiguous payment-transport outcome is recorded as `UNKNOWN`. A definitive
   provider or validation error is `FAILED`. The transport must raise the real

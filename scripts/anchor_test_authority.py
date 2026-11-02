@@ -183,7 +183,7 @@ def issue(
     """A certificate for ``key``, signed by ``issuer = (certificate, key)`` or by itself.
 
     ``timestamping`` is True for a critical extended key usage, "plain" for one that is not
-    critical, False for none.
+    critical, "extra" for a critical one that names another purpose too, False for none.
     """
     now = dt.datetime.now(UTC)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, subject)])
@@ -219,8 +219,11 @@ def issue(
         )
     if timestamping:
         builder = builder.add_extension(
-            x509.ExtendedKeyUsage([ExtendedKeyUsageOID.TIME_STAMPING]),
-            critical=timestamping is True,
+            x509.ExtendedKeyUsage(
+                [ExtendedKeyUsageOID.TIME_STAMPING]
+                + ([ExtendedKeyUsageOID.CODE_SIGNING] if timestamping == "extra" else [])
+            ),
+            critical=timestamping != "plain",
         )
     if unknown_critical:
         builder = builder.add_extension(
@@ -251,6 +254,8 @@ def make_token(
     chain: tuple[x509.Certificate, ...] = (),
     *,
     gen_time: dt.datetime | None = None,
+    gen_time_text: str | None = None,
+    accuracy: bytes = b"",
     nonce: int | None = None,
     digest: str = "sha256",
     imprint_digest: str = "sha256",
@@ -269,7 +274,8 @@ def make_token(
         oid("1.3.6.1.4.1.99999.2"),
         seq(algorithm(SHA_OIDS[imprint_digest], null=True), octets(imprint)),
         integer(x509.random_serial_number()),
-        generalized_time(moment),
+        tlv(0x18, gen_time_text.encode()) if gen_time_text else generalized_time(moment),
+        accuracy,
         integer(nonce) if nonce is not None else b"",
     )
     hasher = hashlib.new(digest)

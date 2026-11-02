@@ -538,6 +538,8 @@ def _format_micros(micros):
 def _parse_date_micros(text):
     """Microseconds of an ISO 8601 date (the end of that day, UTC) or date and time."""
     raw = text.strip()
+    if len(raw) == 8 and raw.isdigit():
+        raw = f"{raw[:4]}-{raw[4:6]}-{raw[6:]}"
     try:
         if len(raw) == 10:
             day = datetime.date.fromisoformat(raw)
@@ -670,7 +672,7 @@ def run_verify_bundle(args):
         if gate_key is None:
             raise ValueError("--gate-public-key is required")
         bundle = _read_text_argument(args.bundle, "bundle")
-        if args.anchored_before:
+        if args.anchored_before is not None:
             args.anchored_before_micros = _parse_date_micros(args.anchored_before)
         roots = _anchor_roots_json(args)
         if args.anchor is None and (args.rekor_public_key or args.tsa_root):
@@ -761,7 +763,8 @@ def run_anchor_verify(args):
     print(json.dumps(parsed, indent=2))
     if parsed["status"] == "VERIFIED":
         print(
-            f"This checkpoint existed no later than {_format_micros(parsed['anchored_at'])}.",
+            f"These checkpoint bytes existed no later than {_format_micros(parsed['anchored_at'])}. "
+            "Whether a gate signed them is not checked here: verify-bundle does that with its key.",
             file=sys.stderr,
         )
         return

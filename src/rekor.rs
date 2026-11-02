@@ -270,6 +270,12 @@ pub(crate) fn verify_proof(
             INCLUSION_FIELDS,
         ));
     }
+    // Informational and never trusted, but still what the contract says they are.
+    for field in ["log_url", "entry_uuid"] {
+        if proof.get(field).is_some_and(|value| !value.is_string()) {
+            errors.push(format!("ANCHOR_MALFORMED ({path}.{field})"));
+        }
+    }
     let outcome = check(proof, digest_hex, keys);
     ProofVerdict::from_check("rekor", outcome, errors)
 }

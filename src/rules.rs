@@ -10,6 +10,7 @@
 //! so a branch not taken cannot fail.
 
 use serde_json::{Map, Number, Value};
+use std::cell::Cell;
 
 pub(crate) const RULES_DENIED: &str = "POLICY_RULES_DENIED";
 pub(crate) const RULES_ERROR: &str = "POLICY_RULES_ERROR";
@@ -18,6 +19,10 @@ const MAX_RULES: usize = 32;
 const MAX_NODES: usize = 256;
 const MAX_DEPTH: usize = 16;
 const MAX_ID_BYTES: usize = 64;
+/// How many bytes of rule and context one evaluation may have read. The evaluator parses both
+/// for every node it is asked about, so this, and not the size of the rules, is what a hostile
+/// bundle could otherwise make its reader pay. Far above a real policy, which reads a few fields.
+const MAX_WORK_BYTES: usize = 64 * 1024 * 1024;
 /// Above this an IEEE double cannot tell neighbouring integers apart.
 const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
 /// All a rule sees, so that every reader can rebuild it from the permit.
@@ -132,6 +137,11 @@ impl Grammar {
         match name {
             "var" => self.var(arguments),
             "missing" if kind == Kind::Test => {
+                // Each path costs a copy and a lookup, so each is a node.
+                self.nodes += arguments.len();
+                if self.nodes > MAX_NODES {
+                    return Err(format!("more than {MAX_NODES} nodes"));
+                }
                 if !arguments.is_empty()
                     && arguments
                         .iter()
@@ -259,18 +269,56 @@ pub(crate) fn validate(rules: &Value) -> Result<(), String> {
     Ok(())
 }
 
-/// A rule went outside its types, or the evaluator refused it.
+/// A rule went outside its types, the evaluator refused it, or the work ran out.
 struct Fault;
+
+/// What is left of `MAX_WORK_BYTES` in one evaluation.
+struct Work(Cell<usize>);
+
+impl Work {
+    fn new() -> Self {
+        Work(Cell::new(MAX_WORK_BYTES))
+    }
+
+    fn spend(&self, bytes: usize) -> Result<(), Fault> {
+        let left = self.0.get().checked_sub(bytes).ok_or(Fault)?;
+        self.0.set(left);
+        Ok(())
+    }
+
+    /// Pay for a value about to be copied. It stops as soon as the work runs out, so a value
+    /// too large to copy costs no more than what is left.
+    fn spend_on(&self, value: &Value) -> Result<(), Fault> {
+        match value {
+            Value::String(text) => self.spend(text.len() + 2),
+            Value::Array(items) => {
+                self.spend(2)?;
+                items.iter().try_for_each(|item| self.spend_on(item))
+            }
+            Value::Object(fields) => {
+                self.spend(2)?;
+                fields.iter().try_for_each(|(key, item)| {
+                    self.spend(key.len() + 3)?;
+                    self.spend_on(item)
+                })
+            }
+            _ => self.spend(8),
+        }
+    }
+}
 
 /// One rule's run. `context` holds only the paths the rule can read: the evaluator parses it
 /// for every node it is asked about, and an intent's input can be megabytes it never looks at.
-struct Run {
+struct Run<'a> {
     context: String,
+    work: &'a Work,
 }
 
-impl Run {
+impl Run<'_> {
     fn value(&self, node: &Value) -> Result<Value, Fault> {
-        jsonlogic_fast::evaluate(&node.to_string(), &self.context).map_err(|_| Fault)
+        let rule = node.to_string();
+        self.work.spend(rule.len() + self.context.len())?;
+        jsonlogic_fast::evaluate(&rule, &self.context).map_err(|_| Fault)
     }
 
     fn boolean(&self, node: &Value) -> Result<bool, Fault> {
@@ -411,17 +459,24 @@ fn collect_paths<'a>(node: &'a Value, paths: &mut Vec<&'a str>) {
 
 /// Copy `path` from `from` into `to`, walking objects. Where the path runs out or reaches
 /// something else (an array, say) the whole value comes along, so a read means the same.
-fn copy_path<'a>(from: &Value, to: &mut Value, mut segments: impl Iterator<Item = &'a str>) {
+fn copy_path<'a>(
+    from: &Value,
+    to: &mut Value,
+    mut segments: impl Iterator<Item = &'a str>,
+    work: &Work,
+) -> Result<(), Fault> {
     let Some(segment) = segments.next() else {
+        work.spend_on(from)?;
         *to = from.clone();
-        return;
+        return Ok(());
     };
     let Some(fields) = from.as_object() else {
+        work.spend_on(from)?;
         *to = from.clone();
-        return;
+        return Ok(());
     };
     let Some(inner) = fields.get(segment) else {
-        return; // missing stays missing
+        return Ok(()); // missing stays missing
     };
     if !to.is_object() {
         *to = Value::Object(Map::new());
@@ -430,31 +485,38 @@ fn copy_path<'a>(from: &Value, to: &mut Value, mut segments: impl Iterator<Item 
         let slot = target
             .entry(segment.to_string())
             .or_insert_with(|| Value::Object(Map::new()));
-        copy_path(inner, slot, segments);
+        copy_path(inner, slot, segments, work)?;
     }
+    Ok(())
 }
 
-/// Run every rule; the reason codes it adds, if any. All rules run, so the same codes come
-/// out however the list is ordered.
+fn run_rule(logic: &Value, context: &Value, work: &Work) -> Result<bool, Fault> {
+    let mut paths = Vec::new();
+    collect_paths(logic, &mut paths);
+    let mut visible = Value::Object(Map::new());
+    for path in paths {
+        copy_path(context, &mut visible, path.split('.'), work)?;
+    }
+    Run {
+        context: visible.to_string(),
+        work,
+    }
+    .boolean(logic)
+}
+
+/// Run every rule; the reason codes it adds, if any. All rules run, so one that fails cannot
+/// hide one that denies, unless the work runs out first, and then they all fail.
 pub(crate) fn evaluate(rules: &Value, context: &Value) -> Vec<&'static str> {
     // A reader also gets here with a policy it has already refused: nothing outside the grammar
     // reaches the evaluator, whoever signed it.
     if validate(rules).is_err() {
         return vec![RULES_ERROR];
     }
+    let work = Work::new();
     let (mut denied, mut failed) = (false, false);
     for rule in rules.as_array().map(Vec::as_slice).unwrap_or_default() {
         let logic = rule.get("logic").unwrap_or(&Value::Null);
-        let mut paths = Vec::new();
-        collect_paths(logic, &mut paths);
-        let mut visible = Value::Object(Map::new());
-        for path in paths {
-            copy_path(context, &mut visible, path.split('.'));
-        }
-        let run = Run {
-            context: visible.to_string(),
-        };
-        match run.boolean(logic) {
+        match run_rule(logic, context, &work) {
             Ok(true) => {}
             Ok(false) => denied = true,
             Err(Fault) => failed = true,
@@ -743,6 +805,36 @@ mod tests {
     }
 
     #[test]
+    fn every_path_in_missing_counts_towards_the_limit() {
+        let paths = |count: usize| json!({"!": {"missing": vec![json!("intent"); count]}});
+        assert!(validate(&rules(paths(254))).is_ok());
+        assert!(validate(&rules(paths(255))).unwrap_err().contains("256"));
+    }
+
+    #[test]
+    fn the_work_a_rule_can_cause_is_bounded() {
+        let mut large = context();
+        large["intent"]["input"]["blob"] = json!("x".repeat(1_000_000));
+        let read = json!({"!==": [{"var": "intent.input.blob"}, "x"]});
+        // A large field, read a few times, is nothing special.
+        assert_eq!(evaluate(&rules(read.clone()), &large), Vec::<&str>::new());
+        // Read over and over, the work runs out and the rule fails.
+        let reads = json!({"and": vec![read; 80]});
+        assert_eq!(evaluate(&rules(reads), &large), vec![RULES_ERROR]);
+        // Copying it over and over runs out the same way, before it is parsed even once.
+        let copies = json!({"!": {"missing": vec![json!("intent.input.blob"); 200]}});
+        assert_eq!(evaluate(&rules(copies), &large), vec![RULES_ERROR]);
+        // And it is one budget, however many rules share it.
+        let shared: Vec<Value> = (0..32)
+            .map(|i| {
+                let paths = vec![json!("intent.input.blob"); 6];
+                json!({"id": format!("r{i}"), "logic": {"!": {"missing": paths}}})
+            })
+            .collect();
+        assert_eq!(evaluate(&json!(shared), &large), vec![RULES_ERROR]);
+    }
+
+    #[test]
     fn limits_are_enforced() {
         let many: Vec<Value> = (0..33)
             .map(|i| json!({"id": format!("r{i}"), "logic": true}))
@@ -816,7 +908,7 @@ mod tests {
             "money.absent",
             "ttl_seconds.x",
         ] {
-            copy_path(&full, &mut visible, path.split('.'));
+            assert!(copy_path(&full, &mut visible, path.split('.'), &Work::new()).is_ok());
         }
         assert_eq!(visible["intent"]["input"], full["intent"]["input"]);
         assert_eq!(visible["money"]["currency"], "USD");

@@ -213,3 +213,13 @@ def test_stating_two_decimals_for_yen_keeps_the_old_reading_on_both_sides():
         "500.00",
         "JPY",
     )
+
+
+def test_a_wrapper_that_does_not_pass_the_exponents_cannot_spell_minor_units():
+    adapter = PaymentActionAdapter(transport=RecordingTransport())
+    intent = {
+        "action_type": "payment.charge",
+        "money": {"amount_minor": 1234, "asset": "KWD", "beneficiary": "acct"},
+    }
+    with pytest.raises(PaymentExecutorError, match="currency_exponents"):
+        adapter.execute_action(intent)

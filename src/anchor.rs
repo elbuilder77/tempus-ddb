@@ -232,6 +232,12 @@ pub(crate) fn verify_value(anchor: &Value, checkpoint: &Value, roots: &TrustRoot
         return AnchorReport::invalid("ANCHOR_MALFORMED (anchor)");
     }
     let mut errors = unknown_fields(anchor, "anchor", ANCHOR_FIELDS);
+    if let Some(path) = crate::strict_json::find_inexact_number(anchor) {
+        errors.push(format!(
+            "ANCHOR_MALFORMED ({})",
+            path.replacen('$', "anchor", 1)
+        ));
+    }
     let digest = match checkpoint_digest_of_value(checkpoint) {
         Ok(digest) => digest,
         Err(_) => return AnchorReport::invalid("ANCHOR_CHECKPOINT_MISMATCH"),
@@ -344,7 +350,12 @@ pub(crate) fn verify_anchor(
     let report = verify_text(anchor_json, &checkpoint, &roots)?;
     let mut result = report.to_json();
     result["schema_version"] = json!(ANCHOR_VERIFICATION_SCHEMA);
-    result["not_checked"] = json!(report.not_checked());
+    let mut not_checked = vec![
+        "CHECKPOINT_SIGNATURE (this dates these bytes, not that a gate signed them: verify_bundle checks that with the gate's key)"
+            .to_string(),
+    ];
+    not_checked.extend(report.not_checked());
+    result["not_checked"] = json!(not_checked);
     canonicalize(&result)
 }
 

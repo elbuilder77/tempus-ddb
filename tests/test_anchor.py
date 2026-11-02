@@ -138,6 +138,73 @@ def test_create_gets_a_proof_from_each_backend_and_they_verify(world, authority)
     assert any("TSA_REVOCATION" in entry for entry in result["not_checked"])
 
 
+def test_the_anchor_alone_dates_bytes_and_says_it_did_not_check_the_gate(
+    world, authority, tmp_path
+):
+    forged = {**json.loads(world["checkpoint"]), "signature": "00" * 64}
+    forged_json = json.dumps(forged)
+    digest = anchor_checkpoint_digest(forged_json)
+    document = {
+        **anchor_document(world, [authority.rekor_proof(digest)]),
+        "checkpoint_digest": digest,
+    }
+    result = json.loads(verify_anchor(json.dumps(document), forged_json, authority.roots_json()))
+    assert result["status"] == "VERIFIED", result
+    assert any("CHECKPOINT_SIGNATURE" in entry for entry in result["not_checked"])
+
+    anchor, checkpoint = tmp_path / "anchor.json", tmp_path / "checkpoint.json"
+    anchor.write_text(json.dumps(document), encoding="utf-8")
+    checkpoint.write_text(forged_json, encoding="utf-8")
+    code, stdout, stderr = run_cli(
+        ["anchor", "verify", "--anchor", str(anchor), "--checkpoint", str(checkpoint)]
+        + write_roots(authority, tmp_path),
+        cwd=tmp_path,
+    )
+    assert code == 0, stdout + stderr
+    assert "These checkpoint bytes existed no later than" in stderr
+    assert "not checked here" in stderr
+
+
+def test_informational_fields_still_have_a_type(world, authority):
+    for backend, field, value in (
+        ("rekor", "log_url", 7),
+        ("rekor", "entry_uuid", ["x"]),
+        ("rfc3161", "tsa_url", 7),
+    ):
+        proof = (
+            authority.rekor_proof(world["digest"])
+            if backend == "rekor"
+            else {
+                "backend": "rfc3161",
+                "token": base64.b64encode(authority.token(bytes.fromhex(world["digest"]))).decode(),
+            }
+        )
+        proof[field] = value
+        result = json.loads(
+            verify_anchor(
+                json.dumps(anchor_document(world, [proof])),
+                world["checkpoint"],
+                authority.roots_json(),
+            )
+        )
+        assert result["status"] == "INVALID", result
+        assert f"ANCHOR_MALFORMED (anchor.proofs[0].{field})" in result["errors"]
+
+
+def test_a_number_that_is_not_exact_is_refused_wherever_it_sits(world, authority):
+    proof = authority.rekor_proof(world["digest"])
+    proof["log_url"] = 1.5
+    result = json.loads(
+        verify_anchor(
+            json.dumps(anchor_document(world, [proof])),
+            world["checkpoint"],
+            authority.roots_json(),
+        )
+    )
+    assert result["status"] == "INVALID", result
+    assert "ANCHOR_MALFORMED (anchor.proofs[0].log_url)" in result["errors"]
+
+
 def test_the_log_checks_the_signature_it_is_sent(world, fresh):
     """An independent implementation accepts the entry: the throwaway key signs the raw hash."""
     with fresh.serve() as (rekor, _):
@@ -354,6 +421,20 @@ def test_cli_a_corrupted_anchor_file_is_not_extended(world, authority, tmp_path)
     assert "existing anchor does not verify" in stderr
     assert out.read_text(encoding="utf-8") == held
 
+    # One with no list of proofs is an answer too, not a traceback.
+    held = json.dumps({"checkpoint_digest": world["digest"]})
+    out.write_text(held, encoding="utf-8")
+    code, _, stderr = run_cli(
+        [
+            "anchor", "create", "--checkpoint", world["checkpoint_file"],
+            "--backend", "rfc3161", "--tsa-url", "http://127.0.0.1:9", "--out", str(out),
+        ],
+        cwd=tmp_path,
+    )  # fmt: skip
+    assert code == 1
+    assert "no list of proofs" in stderr
+    assert out.read_text(encoding="utf-8") == held
+
 
 def test_cli_checkpoint_may_be_an_evidence_bundle(world, authority, tmp_path):
     with authority.serve() as (rekor, _):
@@ -395,6 +476,14 @@ def test_cli_verify_bundle_with_requirements(world, authority, tmp_path):
     code, _, _ = _verify_bundle_cli(world, tmp_path, *with_anchor, "--anchored-before", tomorrow)
     assert code == 0
 
+    # A bare date means the end of that day, however it is written.
+    today = dt.datetime.fromtimestamp(at, tz=UTC)
+    for spelled in (today.strftime("%Y-%m-%d"), today.strftime("%Y%m%d")):
+        code, _, _ = _verify_bundle_cli(
+            world, tmp_path, *with_anchor, "--anchored-before", spelled
+        )
+        assert code == 0, spelled
+
     code, stdout, _ = _verify_bundle_cli(
         world, tmp_path, *with_anchor, "--anchored-before", "2020-01-01"
     )
@@ -435,6 +524,9 @@ def test_cli_usage_mistakes_are_errors_not_verdicts(world, authority, tmp_path):
     code, _, stderr = _verify_bundle_cli(
         world, tmp_path, "--anchor", str(anchor), "--anchored-before", "soon"
     )
+    assert code == 1 and "not an ISO 8601 date" in stderr
+    # An unset variable in a script must not turn the requirement off.
+    code, _, stderr = _verify_bundle_cli(world, tmp_path, "--anchored-before", "")
     assert code == 1 and "not an ISO 8601 date" in stderr
     code, _, stderr = _verify_bundle_cli(world, tmp_path, "--rekor-public-key", "x")
     assert code == 1 and "need --anchor" in stderr
@@ -508,6 +600,47 @@ def test_a_good_chain_verifies(world):
     assert result["status"] == "VERIFIED", result
 
 
+def test_the_date_is_the_latest_the_token_allows(world):
+    chain = Chain()
+    moment = NOW.replace(microsecond=0)
+    second = int(moment.timestamp())
+    text = moment.strftime("%Y%m%d%H%M%S")
+    seq, tlv, integer = (
+        authority_module.seq,
+        authority_module.tlv,
+        authority_module.integer,
+    )
+    for options, added in (
+        ({"gen_time": moment}, 0),
+        ({"gen_time": moment, "accuracy": seq()}, 0),
+        ({"gen_time": moment, "accuracy": seq(integer(3600))}, 3600),
+        ({"gen_time": moment, "accuracy": seq(tlv(0x80, b"\x01\xf4"))}, 1),  # 500 ms
+        ({"gen_time": moment, "accuracy": seq(tlv(0x81, b"\x01"))}, 1),  # 1 microsecond
+        ({"gen_time": moment, "accuracy": seq(integer(2), tlv(0x80, b"\x01"))}, 3),
+        ({"gen_time_text": f"{text}.9Z"}, 1),
+        ({"gen_time_text": f"{text}.9Z", "accuracy": seq(integer(1))}, 2),
+    ):
+        result = _checked(world, chain.token(world, **options), chain.roots())
+        assert result["status"] == "VERIFIED", result
+        assert result["anchored_at"] == (second + added) * 1_000_000, options
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        pytest.param(b"\x02\x01\xff", id="negative seconds"),
+        pytest.param(b"\x80\x02\x03\xe8", id="1000 milliseconds"),
+        pytest.param(b"\x81\x02\x03\xe8", id="1000 microseconds"),
+        pytest.param(b"\x02\x06\x01\x00\x00\x00\x00\x00", id="seconds out of range"),
+        pytest.param(b"\x04\x01\x01", id="a field that does not belong"),
+    ],
+)
+def test_an_accuracy_that_makes_no_sense_is_malformed(world, bad):
+    chain = Chain()
+    token = chain.token(world, accuracy=authority_module.tlv(0x30, bad))
+    assert _checked(world, token, chain.roots())["errors"] == ["ANCHOR_TSA_TOKEN_MALFORMED"]
+
+
 @pytest.mark.parametrize("kind", ["p256", "p384", "rsa2048"])
 @pytest.mark.parametrize("digest", ["sha256", "sha384", "sha512"])
 def test_accepted_algorithms(world, kind, digest):
@@ -558,7 +691,10 @@ def test_an_imprint_of_another_digest_or_algorithm_is_refused(world):
     _assert_refused(world, chain, "ANCHOR_TSA_IMPRINT_MISMATCH", imprint_digest="sha512")
 
 
-@pytest.mark.parametrize("signer", [{"timestamping": False}, {"timestamping": "plain"}])
+@pytest.mark.parametrize(
+    "signer",
+    [{"timestamping": False}, {"timestamping": "plain"}, {"timestamping": "extra"}],
+)
 def test_a_signer_not_marked_for_timestamping_is_refused(world, signer):
     _assert_refused(world, Chain(signer=signer), "ANCHOR_TSA_SIGNER_INVALID")
 
@@ -641,6 +777,28 @@ def test_a_chain_to_another_root_is_refused(world):
     other = Chain()
     result = _checked(world, chain.token(world), other.roots())
     assert result["errors"] == ["ANCHOR_TSA_CHAIN_INVALID"]
+
+
+def test_an_expired_certificate_of_the_same_name_and_key_is_passed_over(world):
+    chain = Chain()
+    past = NOW - dt.timedelta(days=400)
+    dates = {"not_before": past, "not_after": past + dt.timedelta(days=1)}
+    # Next to its reissued self, ahead of it in the token.
+    stale = issue("Intermediate", chain.intermediate_key, (chain.root, chain.root_key), ca=True, **dates)
+    token = make_token(_digest(world), chain.signer_key, chain.signer, (stale, chain.intermediate))
+    result = _checked(world, token, chain.roots())
+    assert result["status"] == "VERIFIED", result
+    # Alone, it does not make a chain.
+    token = make_token(_digest(world), chain.signer_key, chain.signer, (stale,))
+    assert _checked(world, token, chain.roots())["errors"] == ["ANCHOR_TSA_CHAIN_INVALID"]
+    # The same among the pinned roots, whichever comes first.
+    stale_root = issue("Root", chain.root_key, ca=True, **dates)
+    roots = [authority_module.cert_pem(stale_root), *chain.roots()]
+    result = _checked(world, chain.token(world), roots)
+    assert result["status"] == "VERIFIED", result
+    assert _checked(
+        world, chain.token(world), [authority_module.cert_pem(stale_root)]
+    )["errors"] == ["ANCHOR_TSA_CHAIN_INVALID"]
 
 
 def test_a_root_placed_in_the_token_is_not_trusted_because_of_that(world):

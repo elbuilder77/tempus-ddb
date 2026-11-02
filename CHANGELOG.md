@@ -32,7 +32,9 @@ operator or Tempus. Policies gain rules, and amounts gain real decimals.
   the gate checks only the shape of `money`. With no policy installed, an amount such as `"1.234"`
   now gets the signed `POLICY_NOT_INSTALLED` denial instead of an error. It is blocked either way.
 - `ExecutorRuntime` passes the signed policy's `currency_exponents` to an adapter that sets
-  `reads_currency_exponents = True`. Other adapters are called as before.
+  `reads_currency_exponents = True`. Other adapters are called as before. `PaymentActionAdapter`
+  sets it, and called directly without them it refuses an intent holding only `amount_minor`
+  instead of reading it in hundredths.
 - The browser verifier grows by about 400 KB (403,735 to about 807,000 bytes, 149 KB to about
   282 KB compressed) for the signature, DER and rules code.
 
