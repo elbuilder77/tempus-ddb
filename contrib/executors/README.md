@@ -160,11 +160,13 @@ tempus-payment-executor \
   --secret-key "sk_live_<isolated-payment-key>"
 ```
 
-- **Minor units assume two decimals.** `amount_minor` and the `max_money_amount_minor` limit
-  are read as hundredths (`"25.5"` is `2550`) for every currency. That is wrong for zero-
-  decimal currencies (JPY: `"500"` means 500 yen, but the limit sees 50 000 minor units) and
-  for three-decimal ones (BHD, KWD). Express limits per currency with that in mind, or keep
-  such currencies out of `allowed_currencies`.
+- **Minor units follow the policy.** The executor reads amounts with the `currency_exponents` of
+  the signed policy, as the gate does, so a currency has the decimals the policy gives it and two
+  otherwise. It sends `amount` as written, and spells an `amount_minor`-only intent in that
+  currency's decimals (`500` JPY as `"500"`, `1234` KWD as `"1.234"`). An adapter of your own that
+  reads amounts, or wraps this one, sets `reads_currency_exponents = True`, takes
+  `currency_exponents` in `execute_action` and passes them on. Without them this adapter refuses an
+  intent holding only `amount_minor`, because it cannot know how to spell it.
 - `money.beneficiary` must be a non-empty string; it is paid exactly as written.
 - An ambiguous payment-transport outcome is recorded as `UNKNOWN`. A definitive
   provider or validation error is `FAILED`. The transport must raise the real

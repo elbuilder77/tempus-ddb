@@ -67,36 +67,70 @@ class MockPaymentTransport:
 
 
 # ASCII digits only (`\d` would take any Unicode digit); same grammar as the gate's
-# `parse_minor_units`: a `.` needs one or two digits, and minor units fit in a u64.
-_DECIMAL_AMOUNT = re.compile(r"([0-9]+)(?:\.([0-9]{1,2}))?")
+# `parse_minor_units`: a `.` needs a digit, there are no more fractional digits than the
+# currency has decimals, and minor units fit in a u64.
+_DECIMAL_AMOUNT = re.compile(r"([0-9]+)(?:\.([0-9]+))?")
+_DEFAULT_EXPONENT = 2
+_MAX_EXPONENT = 8
+_DIGIT_WORDS = ("no", "one", "two", "three", "four", "five", "six", "seven", "eight")
 # Same rule as the gate: an exact 3-letter code.
 _EXACT_CURRENCY = re.compile(r"[A-Z]{3}")
 _U64_MAX = 2**64 - 1
+# Told apart from None, which says the signed policy names no currency.
+_EXPONENTS_NOT_PASSED: Any = object()
 
 
-def _minor_units(text: str) -> int:
+def _exponent(currency_exponents: Optional[Dict[str, Any]], asset: str) -> int:
+    """The decimals of a currency in the signed policy (`phase3::currency_exponent`)."""
+    if not currency_exponents or asset not in currency_exponents:
+        return _DEFAULT_EXPONENT
+    exponent = currency_exponents[asset]
+    if (
+        isinstance(exponent, bool)
+        or not isinstance(exponent, int)
+        or not 0 <= exponent <= _MAX_EXPONENT
+    ):
+        raise PaymentExecutorError(
+            f"currency_exponents.{asset} must be an integer from 0 to {_MAX_EXPONENT}"
+        )
+    return exponent
+
+
+def _minor_units(text: str, exponent: int = _DEFAULT_EXPONENT) -> int:
     """Minor units of a decimal amount string, or PaymentExecutorError."""
     match = _DECIMAL_AMOUNT.fullmatch(text)
-    if not match:
+    fractional = (match.group(2) or "") if match else ""
+    if not match or len(fractional) > exponent:
+        digits = f"at most {_DIGIT_WORDS[exponent]}" if exponent else "no"
         raise PaymentExecutorError(
-            "money.amount must be an unsigned decimal with at most two fractional digits"
+            f"money.amount must be an unsigned decimal with {digits} fractional digits"
         )
     whole = match.group(1).lstrip("0") or "0"
     if len(whole) > 20:  # also keeps int() away from absurdly long digit strings
         raise PaymentExecutorError("money.amount is too large")
-    minor = int(whole) * 100 + int((match.group(2) or "").ljust(2, "0"))
+    minor = int(whole) * 10**exponent + int(fractional.ljust(exponent, "0") or "0")
     if minor > _U64_MAX:
         raise PaymentExecutorError("money.amount is too large")
     return minor
 
 
-def canonical_money(money: Dict[str, Any]) -> Tuple[str, str]:
+def _format_minor(minor: int, exponent: int) -> str:
+    if not exponent:
+        return str(minor)
+    scale = 10**exponent
+    return f"{minor // scale}.{minor % scale:0{exponent}d}"
+
+
+def canonical_money(
+    money: Dict[str, Any], currency_exponents: Optional[Dict[str, Any]] = None
+) -> Tuple[str, str]:
     """(amount, asset) exactly as the gate's policy reads them (`phase3::validate_money`).
 
     `amount` / `amount_minor` are two spellings of one value and `currency` / `asset` two
     names of one field. The policy evaluates whichever is present, so an executor must not
     send one while the policy evaluated the other: if both spellings are present they must
-    agree, and a field of the wrong type is an error, never skipped.
+    agree, and a field of the wrong type is an error, never skipped. `currency_exponents`
+    is the signed policy's: a currency it does not name has two decimals.
     """
     names = {}
     for field in ("currency", "asset"):
@@ -127,7 +161,8 @@ def canonical_money(money: Dict[str, Any]) -> Tuple[str, str]:
         or not 0 <= minor <= _U64_MAX
     ):
         raise PaymentExecutorError("money.amount_minor must be an unsigned integer")
-    from_text = _minor_units(text) if text is not None else None
+    exponent = _exponent(currency_exponents, asset)
+    from_text = _minor_units(text, exponent) if text is not None else None
     if from_text is not None and minor is not None and from_text != minor:
         raise PaymentExecutorError(
             f"money.amount ({from_text} minor units) and money.amount_minor ({minor}) disagree"
@@ -136,7 +171,7 @@ def canonical_money(money: Dict[str, Any]) -> Tuple[str, str]:
         return text, asset
     if minor is None:
         raise PaymentExecutorError("Missing 'amount' (or 'amount_minor') in money")
-    return f"{minor // 100}.{minor % 100:02d}", asset
+    return _format_minor(minor, exponent), asset
 
 
 def component_pattern_matches(pattern: str, candidate: str) -> bool:
@@ -246,11 +281,18 @@ class PaymentActionAdapter:
         else:
             self._allowed_beneficiaries = None
 
+    # Amounts mean what the signed policy says: the runtime passes its `currency_exponents`.
+    reads_currency_exponents = True
+
     @property
     def supported_actions(self) -> Set[str]:
         return self.SUPPORTED_ACTIONS
 
-    def execute_action(self, intent: Dict[str, Any]) -> ExecutionResult:
+    def execute_action(
+        self,
+        intent: Dict[str, Any],
+        currency_exponents: Optional[Dict[str, Any]] = _EXPONENTS_NOT_PASSED,
+    ) -> ExecutionResult:
         # Enforce presence of universal money envelope
         money = intent.get("money")
         if not money or not isinstance(money, dict):
@@ -258,9 +300,20 @@ class PaymentActionAdapter:
                 "Financial action requires a valid 'money' envelope in intent"
             )
 
+        if currency_exponents is _EXPONENTS_NOT_PASSED:
+            # An adapter wrapping this one, without `reads_currency_exponents`. An amount as
+            # written is sent as written, but spelling minor units takes the decimals the policy
+            # evaluated: guessing two could pay ten times too much.
+            if "amount" not in money:
+                raise PaymentExecutorError(
+                    "an amount_minor intent needs the signed policy's currency_exponents: "
+                    "set reads_currency_exponents on the adapter calling this one and pass them"
+                )
+            currency_exponents = None
+
         # The same reading the policy evaluated, never a field it skipped.
-        amount, asset = canonical_money(money)
-        if _minor_units(amount) == 0:
+        amount, asset = canonical_money(money, currency_exponents)
+        if _minor_units(amount, _exponent(currency_exponents, asset)) == 0:
             raise PaymentExecutorError("a payment action requires a non-zero amount")
         # Paid exactly as written: never str() of a null/number/list ("None" was paid).
         beneficiary = money.get("beneficiary")

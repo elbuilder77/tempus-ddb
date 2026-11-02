@@ -51,6 +51,25 @@ contracts themselves are specified in [SPEC.md](SPEC.md).
   Classification is by exception type. A validation error stays `FAILED`. The same
   README section has the migration notes.
 
+## Anchors, rules and decimals (0.8)
+
+| Change | Older readers (0.6, 0.7) |
+|---|---|
+| `tempus.anchor.v1` | Not read. Bundles are unchanged, so an anchor travels beside them. |
+| `checks.anchor`, `anchor`, new `trust.not_checked` entries | Additive. |
+| No `rules` in a policy | Bytes and digests are unchanged. |
+| `rules` present, permit `ALLOWED` | Verified, without running the rules. |
+| `rules` present, permit `BLOCKED` by rules | They recompute `ALLOWED` and answer `INVALID`. This fails closed; upgrade the verifier. |
+| `currency_exponents` present | `TEMPUS_POLICY_CONSTRAINT_UNKNOWN`. This fails closed. |
+
+Two behaviours become stricter or move, and neither turns a blocked action into an allowed one:
+
+- A new install whose `allowed_currencies` names a non-2-decimal ISO 4217 currency with no exponent
+  is refused. Stored bundles keep working, and a currency a policy does not name keeps two decimals,
+  so every existing permit reads the same.
+- An amount with too many decimals is still an error when a policy reads it. With no policy
+  installed, it now gets the signed `POLICY_NOT_INSTALLED` denial instead.
+
 ## Stored data
 
 Database migrations are forward-only. Operators must back up the SQLite database before

@@ -95,7 +95,7 @@ the future (`REQUEST_FROM_FUTURE`) relative to its clock, signing the denial.
 
 ## 3. Documents
 
-Fifteen wire documents and two verification results. Every document carries
+Sixteen wire documents and three verification results. Every document carries
 `schema_version`; a verifier MUST refuse an unknown `schema_version` rather than
 guess. Fields marked *signed* are inside the hashed and signed body.
 
@@ -131,7 +131,7 @@ accepts and a verifier checks.
 | `action_id`, `tenant_id`, `agent_id` | yes | From the intent |
 | `intent_hash` | yes | `sha256_hex(intent)` |
 | `decision` | yes | `ALLOWED` or `BLOCKED` |
-| `reason_codes` | yes | Closed list, e.g. `POLICY_ALLOWED`, `POLICY_NOT_INSTALLED`, `POLICY_MONEY_DENIED`, `AGENT_NOT_REGISTERED`, `INVALID_AGENT_SIGNATURE`, `REQUEST_STALE`, `REQUEST_FROM_FUTURE` |
+| `reason_codes` | yes | Closed list, e.g. `POLICY_ALLOWED`, `POLICY_NOT_INSTALLED`, `POLICY_MONEY_DENIED`, `POLICY_RULES_DENIED`, `POLICY_RULES_ERROR`, `AGENT_NOT_REGISTERED`, `INVALID_AGENT_SIGNATURE`, `REQUEST_STALE`, `REQUEST_FROM_FUTURE` |
 | `policy_version`, `policy_digest` | yes | The policy bundle evaluated (3.4) |
 | `evidence_digest` | yes | `sha256_hex` of the policy evidence (3.5) |
 | `executor_constraints` | yes | `{"allowed_executors": [...]}` copied from the policy |
@@ -168,7 +168,8 @@ Produced and signed (digest signature) by the gate when a policy is installed.
 | `schema_version` | yes | `tempus.policy-bundle.v1` |
 | `policy_version` | yes | Unique per gate; the dev allow-all policy is `tempus.dev-allow-all.v1.<issued_at>` |
 | `tenant_id` | yes | A tenant or `*` |
-| `constraints` | yes | Object with exactly these keys allowed: `allowed_action_types`, `allowed_resources`, `allowed_executors` (pattern lists), `max_ttl_seconds`, `max_input_bytes` (required integers), `allowed_currencies` (exact codes), `max_money_amount_minor`, `allowed_beneficiaries` |
+| `constraints` | yes | Object with exactly these keys allowed: `allowed_action_types`, `allowed_resources`, `allowed_executors` (pattern lists), `max_ttl_seconds`, `max_input_bytes` (required integers), `allowed_currencies` (exact codes), `currency_exponents`, `max_money_amount_minor`, `allowed_beneficiaries` |
+| `rules` | yes | Optional; see below |
 | `issued_at` | yes | Microseconds |
 | `signer` | yes | Gate signer identity |
 | `policy_digest` | no | `sha256_hex(body)` |
@@ -178,6 +179,70 @@ Patterns match whole components split on `.` and `/`: `*` matches one component,
 `vendor-api/*` matches `vendor-api/credits` and not `vendor-api/a/b`. A pattern that is
 not of that form matches nothing. Evaluation is deterministic: the same bundle and intent
 always yield the same decision and reason codes.
+
+**Amounts.** An amount is read in the decimals of its currency. `currency_exponents` maps an
+exact code to 0..8, and any other currency has two. `amount` has at most that many fractional
+digits, minor units are `amount * 10^exponent`, and `max_money_amount_minor` and rules see
+those units. `amount` and `amount_minor`, when both are present, MUST agree. Before a policy is
+known a gate checks only the shape of `money`: types, the decimal grammar up to 8 fractional
+digits, and no zero amount on a payment action. A gate MUST refuse to install a policy whose
+`allowed_currencies` names one of these currencies with no entry in `currency_exponents`,
+because read in hundredths `"500"` yen would meet a limit as 50000:
+
+- 0 decimals: BIF CLP DJF GNF ISK JPY KMF KRW PYG RWF UGX UYI VND VUV XAF XOF XPF
+- 3 decimals: BHD IQD JOD KWD LYD OMR TND
+- 4 decimals: CLF UYW
+
+That refusal is for a new install. A verifier MUST NOT apply it to a bundle it reads.
+
+**Rules.** `rules` is a list of up to 32 `{"id", "logic"}` objects, with ids matching
+`[a-z0-9._-]{1,64}` and unique, and each `logic` holding up to 256 nodes (a path in `missing` is
+one) and 16 levels. A bundle
+with no `rules` has exactly the bytes it had before they existed. A rule sees this and nothing
+else, so anyone can rebuild it from the permit:
+
+```json
+{"intent": <the signed intent>, "ttl_seconds": <integer>,
+ "money": {"amount_minor": <integer>, "currency": "<code>"}}
+```
+
+`money` is absent when the intent has none. Rules are a typed subset of JsonLogic, because
+JsonLogic itself coerces like JavaScript (`"10" > 9`, `1 == "1"`) and its arithmetic is floating
+point:
+
+```
+Bool := true | false | Var
+      | {"and": [Bool, ...]} | {"or": [Bool, ...]} | {"if": [Bool, Bool, Bool]}
+      | {"!": Test} | {"!!": Test}
+      | {"===": [Term, Term]} | {"!==": [Term, Term]}
+      | {"<": [Num, Num]} | {"<=": [Num, Num]} | {">": [Num, Num]} | {">=": [Num, Num]}
+      | {"in": [Str, Str | [string, ...] | Var]}
+Test := Bool | Var | {"missing": ["path", ...]}
+Num  := integer | Var | {"+": [Num, Num]} | {"-": [Num, Num]} | {"*": [Num, Num]}
+      | {"min": [Num, ...]} | {"max": [Num, ...]}
+Str  := string | Var
+Term := integer | string | true | false | null | Var | Num
+Var  := {"var": "path"} | {"var": ["path", integer | string | true | false | null]}
+```
+
+A path is dot-separated `[A-Za-z0-9_-]+` segments under `intent`, `ttl_seconds` or `money`. An
+object has exactly one operator, and `{"!": x}` is the same as `{"!": [x]}`. A list in `in` holds
+literal strings only, because JsonLogic does not evaluate inside a literal list. Anything else,
+including `==`, `!=`, `/`, `%`, `substr`, `cat`, `map`, `filter`, `reduce`, `all`, `some`, `none`,
+`merge`, `missing_some` and `log`, is refused when the policy is read
+(`TEMPUS_POLICY_RULES_INVALID`). `missing` asks whether a key is there, and a key holding null is
+there.
+
+Integer literals, every value read as a number and every result of arithmetic MUST be exact and
+within +/-(2^53 - 1). A value of the wrong type, read from a branch the rule actually reaches, is
+a failure; a branch not taken cannot fail. Every rule runs. A rule that is `false` adds
+`POLICY_RULES_DENIED`, a rule that fails adds `POLICY_RULES_ERROR`, each at most once and in that
+order, after any other policy reason. Either makes the decision `BLOCKED`, and a verifier
+re-executes the rules when it reproduces the decision.
+
+An implementation MUST bound the work a rule list can cause. The reference implementation reads
+at most 64 MiB of rule and context text per evaluation, and past that a rule fails. A policy
+anywhere near that is not portable.
 
 ### 3.5 `tempus.policy-evidence.v1` — why the decision came out that way
 
@@ -309,7 +374,8 @@ gate. Fields: `schema_version`, `checkpoint_id`, `tenant_id`, `checkpoint_sequen
 A verifier with the checkpoint, the covered events and the pinned gate key MUST check the
 signature, the contiguity of sequence numbers, every `prev_event_hash` link and digest,
 every event's tenant, and that the recomputed root equals `stream_root_hash`. A deleted
-tail, a gap, an edited byte or a rollback to an earlier checkpoint is `INVALID`.
+tail, a gap, an edited byte or a rollback to an earlier checkpoint is `INVALID`. Its
+`created_at` is the gate's own claim; an anchor (3.16) dates it from outside.
 
 ### 3.15 `tempus.evidence-bundle.v1` — one file for a third party
 
@@ -327,7 +393,53 @@ Produced by the gate (`tempus export-bundle`). It holds no private key material.
 digest it computed (`bundle_digest`), and when `verify_url` is present MUST check that it
 is an `http(s)` URL whose fragment is `bundle=<that digest>` (`BUNDLE_VERIFY_URL_MISMATCH`
 otherwise, `BUNDLE_VERIFY_URL_INVALID` when malformed). A bundle without `verify_url` is
-valid. Any other top-level field is `UNKNOWN_FIELD (bundle.<name>)`.
+valid. Any other top-level field is `UNKNOWN_FIELD (bundle.<name>)`, so an anchor (3.16)
+travels beside the bundle, not inside it.
+
+### 3.16 `tempus.anchor.v1` — proof from outside that a checkpoint existed by a date
+
+Produced by the gate operator (`tempus anchor create`), never by the gate itself. The wrapper
+is unsigned; each proof authenticates itself. It is a separate file because the checkpoint's
+signature and the bundle's closed field list leave no room for it inside them.
+
+| Field | Notes |
+|---|---|
+| `schema_version` | `tempus.anchor.v1` |
+| `checkpoint_id`, `tenant_id` | MUST equal the checkpoint's |
+| `checkpoint_digest` | `sha256_hex(signed checkpoint, including its signature)`: what is anchored |
+| `proofs` | 1 to 8 proofs |
+
+Only that digest leaves the operator's machine, so a public entry says nothing about the tenant.
+
+A `rekor` proof holds `log_url` and `entry_uuid` (informational, never trusted), `body` (base64
+of the logged `hashedrekord` over the digest), `integrated_time`, `log_id`, `log_index`,
+`signed_entry_timestamp`, and `inclusion_proof` (`log_index`, `tree_size`, `root_hash`, `hashes`,
+`checkpoint`). The entry is signed by a fresh P-256 key that is then discarded, so entries cannot
+be linked to each other or to the gate. A verifier MUST check that the body is about the digest;
+then, with a pinned key whose `sha256(SPKI)` equals `log_id`, MUST verify the signed entry
+timestamp (ECDSA P-256 over the canonical JSON of `{body, integratedTime, logID, logIndex}`), the
+RFC 6962 inclusion proof from `sha256(0x00 || body)`, and the signed note in `checkpoint` with the
+same key, whose size and root MUST equal the proof's. The proof's time is `integrated_time`.
+
+An `rfc3161` proof holds `tsa_url` (informational) and `token` (base64 of a DER TimeStampToken)
+whose imprint is SHA-256 of the raw digest bytes. A verifier MUST check the imprint; then, with
+pinned roots, MUST check the signed attributes (`contentType`, `messageDigest`, a signing
+certificate attribute), the signature over them, the signer's critical extended key usage, naming
+`timeStamping` and nothing else, and a chain built only from the token's certificates up to a pinned root: issuer and
+subject bytes equal, signature valid, issuer a CA allowed to sign certificates,
+`pathLenConstraint` respected, no unknown critical extension, every certificate valid *at
+`genTime`*, not today, so old evidence keeps verifying. A certificate that could not serve is
+passed over in favour of one that can. The proof's time is the latest the token allows: `genTime`
+plus its `accuracy`, rounded up to a whole second. Accepted algorithms are ECDSA P-256 and P-384
+with SHA-256, SHA-384 or SHA-512, and RSA PKCS#1 v1.5 with those hashes, a modulus of 2048 to 8192
+bits and an odd public exponent above 1 of at most 8 bytes. Anything else is
+`ANCHOR_TSA_ALGORITHM_UNSUPPORTED`.
+
+Trust roots are the reader's: `{"rekor_public_keys": ["<PEM or base64 SPKI>"], "tsa_roots":
+["<PEM or base64 certificate>"]}`. A proof with no pinned root is `NOT_CHECKED`, never `VERIFIED`.
+In both kinds the time MUST NOT be more than 300 s before the checkpoint's `created_at`
+(`ANCHOR_BEFORE_CHECKPOINT`). There is no upper bound: a late anchor is honest and proves less,
+and the reader sets the bound (`--anchored-before`).
 
 ## 4. Verification results
 
@@ -343,12 +455,13 @@ Returned by `verify_receipt` (permit, outcome or trace), `verify_trace` and
 | `action_id` | From the document |
 | `phase` | `AUTHORIZED` (permit, unexpired, no outcome), `EXPIRED`, `COMPLETED`, `BLOCKED`, or `UNKNOWN` when the document could not be parsed |
 | `decision`, `execution_status`, `output_degraded` | What the signed documents say; `null` unless `status` is `VERIFIED`, so a reader never takes a value from a document that failed |
-| `checks.authorization`, `checks.execution` | `VERIFIED`, `FAILED` or `NOT_PRESENT`; bundles add `checks.checkpoint` |
+| `checks.authorization`, `checks.execution` | `VERIFIED`, `FAILED` or `NOT_PRESENT`; bundles add `checks.checkpoint` and `checks.anchor` (`VERIFIED`, `FAILED`, `NOT_CHECKED`, or `NOT_PRESENT` when no anchor was given) |
+| `anchor` | With an anchor: the result of 4.3 without `schema_version` and `not_checked`, which joins `trust.not_checked`. A failed anchor makes the whole verdict `INVALID` |
 | `errors` | Codes, possibly with a parenthesised path; empty when `VERIFIED` |
 | `trust.mode` | `PINNED_GATE_KEY` (independent) or `DATABASE_SELF_ATTESTED` (not independent; the CLI warns) |
 | `trust.independent` | `true` only with a pinned key |
 | `trust.gate_public_key`, `trust.executor_keys_pinned` | What was pinned |
-| `trust.not_checked` | What this verification does not establish, as `CODE (explanation)`: `AGENT_REGISTRATION_AT_ISSUE`, `SINGLE_USE_CONSUMPTION`, `EXECUTOR_IDENTITY` (unless pinned), `PERMIT_LINKAGE` (outcome alone), `LEDGER_INCLUSION` (bundle without checkpoint), `COMPLETENESS` (every bundle) |
+| `trust.not_checked` | What this verification does not establish, as `CODE (explanation)`: `AGENT_REGISTRATION_AT_ISSUE`, `SINGLE_USE_CONSUMPTION`, `EXECUTOR_IDENTITY` (unless pinned), `PERMIT_LINKAGE` (outcome alone), `LEDGER_INCLUSION` (bundle without checkpoint), `COMPLETENESS` (every bundle), `CHECKPOINT_TIME` (bundle with no verified anchor), `ANCHOR_NOT_PINNED` (each proof with no pinned root), `TSA_REVOCATION` (a timestamp proof verified: revocation cannot be checked offline) |
 | `bundle_digest`, `verify_url` | Bundles only |
 
 Error codes a conforming verifier MUST produce for the corresponding defect include
@@ -356,11 +469,19 @@ Error codes a conforming verifier MUST produce for the corresponding defect incl
 `INTENT_HASH_MISMATCH`, `AGENT_SIGNATURE_INVALID`, `EXECUTION_RECEIPT_ID_MISMATCH`,
 `EXECUTION_GATE_SIGNATURE_INVALID`, `EXECUTION_GATE_KEY_NOT_PINNED`,
 `OUTCOME_HASH_MISMATCH`, `EXECUTOR_SIGNATURE_INVALID`, `EXECUTOR_AGENT_COLLUSION`,
-`POLICY_DIGEST_MISMATCH`, `AUTHORIZATION_NON_EXACT_NUMBER (path)`,
+`POLICY_DIGEST_MISMATCH`, `AUTHORIZATION_POLICY_DECISION_MISMATCH`,
+`AUTHORIZATION_DECISION_NOT_REPRODUCIBLE`, `AUTHORIZATION_REASON_CODES_NOT_REPRODUCIBLE`,
+`AUTHORIZATION_NON_EXACT_NUMBER (path)`,
 `EXECUTION_NON_EXACT_NUMBER (path)`, `UNKNOWN_FIELD (path)`, `TRACE_ACTION_ID_MISMATCH`,
 `BUNDLE_ACTION_ID_MISMATCH`, `BUNDLE_VERIFY_URL_MISMATCH`, `BUNDLE_VERIFY_URL_INVALID`,
 `CHECKPOINT_<reason>` and `CHECKPOINT_TENANT_MISMATCH`,
-`CHECKPOINT_AUTHORIZATION_NOT_INCLUDED`, `CHECKPOINT_EXECUTION_NOT_INCLUDED`, and
+`CHECKPOINT_AUTHORIZATION_NOT_INCLUDED`, `CHECKPOINT_EXECUTION_NOT_INCLUDED`,
+`ANCHOR_MALFORMED (path)`, `ANCHOR_CHECKPOINT_MISMATCH`, `ANCHOR_NO_CHECKPOINT`,
+`ANCHOR_BEFORE_CHECKPOINT`, `ANCHOR_REKOR_ENTRY_MISMATCH`, `ANCHOR_REKOR_LOG_UNKNOWN`,
+`ANCHOR_REKOR_SET_INVALID`, `ANCHOR_REKOR_INCLUSION_INVALID`, `ANCHOR_REKOR_NOTE_INVALID`,
+`ANCHOR_TSA_TOKEN_MALFORMED`, `ANCHOR_TSA_IMPRINT_MISMATCH`, `ANCHOR_TSA_ATTRIBUTES_INVALID`,
+`ANCHOR_TSA_SIGNATURE_INVALID`, `ANCHOR_TSA_ALGORITHM_UNSUPPORTED`,
+`ANCHOR_TSA_SIGNER_INVALID`, `ANCHOR_TSA_CHAIN_INVALID`, and
 `DUPLICATE_JSON_KEY` / `NON_EXACT_NUMBER` for refused input. A verifier MUST NOT report
 `VERIFIED` with a non-empty `errors` list.
 
@@ -370,6 +491,19 @@ Returned by `verify_checkpoint`: `status` (`VERIFIED` or `INVALID`), `checkpoint
 `events_verified`, and on failure `reason_code` (`ERR_UNTRUSTED_SIGNER`,
 `ERR_SIGNATURE_INVALID`, `ERR_EMPTY_STREAM`, `ERR_SEQUENCE_GAP`, `ERR_TENANT_MISMATCH`,
 hash-chain and root mismatches, `DUPLICATE_JSON_KEY`) and `message`.
+
+### 4.3 `tempus.anchor-verification.v1`
+
+Returned by `verify_anchor`.
+
+| Field | Notes |
+|---|---|
+| `status` | `VERIFIED` (at least one proof verified, none failed), `NOT_CHECKED` (none failed, nothing pinned) or `INVALID` |
+| `checkpoint_id`, `checkpoint_digest` | The digest as computed from the checkpoint given |
+| `anchored_at` | Microseconds: the earliest verified proof's time. `null` unless `VERIFIED` |
+| `proofs` | `{backend, status, anchored_at, errors}` per proof; `status` is `VERIFIED`, `NOT_CHECKED` or `FAILED` |
+| `errors` | Document and proof errors together; empty unless `INVALID` |
+| `not_checked` | What this result leaves open, in the form of `trust.not_checked`. Always `CHECKPOINT_SIGNATURE`: this result dates these bytes, and only verifying a bundle, with the gate's key, shows a gate signed them |
 
 ## 5. What verification means
 
@@ -381,12 +515,20 @@ those appear in `trust.not_checked`, and a conforming verifier MUST surface them
 than stay silent. A document verified against the database it came from
 (`DATABASE_SELF_ATTESTED`) is not independent evidence and MUST say so.
 
+A verified anchor adds one statement: this checkpoint existed no later than `anchored_at`,
+for anyone who trusts the roots they pinned. It says nothing about what the checkpoint leaves
+out, and it cannot show that no later checkpoint exists.
+
 ## 6. Conformance
 
 An implementation conforms to this specification when, for every file in
 `conformance/evidence/` with the gate public key in `gate_public_key.txt`, it returns the
 `status`, `kind`, `phase` (or one of `phase_any`), `checks` and `errors` listed for that
-file in `expected.json`, and when it refuses the malformed inputs of section 2.1. The
+file in `expected.json`, and when it refuses the malformed inputs of section 2.1. For each
+entry of `anchor_cases` it MUST return the listed `status`, per-proof statuses and `errors`,
+both for the anchor alone against the checkpoint in `anchor_bundle` and alongside that bundle
+(`checks.anchor`). `anchor_roots.json` holds the roots of a throwaway log and timestamp
+authority made for the fixtures. The
 fixtures are regenerated by `scripts/generate_conformance_evidence.py` whenever the
 reference implementation's documents change; a change that alters an expected verdict is
 a protocol change and needs a new schema version.

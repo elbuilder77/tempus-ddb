@@ -367,8 +367,8 @@ fn validate_intent(value: &Value, expected_agent: &str) -> Result<IntentFields, 
             return Err("TEMPUS_INVALID_CONTRACT: money must be an object or null".to_string());
         }
         if money.is_object() {
-            // The same reading the policy evaluates and the executors use.
-            crate::phase3::validate_money(money)?;
+            // Its amount is read by the policy, which knows the currency's decimals.
+            crate::phase3::validate_money_shape(money)?;
         }
     }
     crate::phase3::reject_payment_without_money(&action_type, value)?;
@@ -2486,7 +2486,7 @@ const BUNDLE_CHECKPOINT_FIELDS: &[&str] = &["checkpoint", "stream"];
 
 /// Wrapper objects carry unsigned fields only by mistake or by design of an attacker:
 /// anything outside the schema is reported instead of riding along as "verified".
-fn unknown_fields(value: &Value, path: &str, allowed: &[&str]) -> Vec<String> {
+pub(crate) fn unknown_fields(value: &Value, path: &str, allowed: &[&str]) -> Vec<String> {
     let Some(object) = value.as_object() else {
         return Vec::new();
     };
@@ -2749,6 +2749,19 @@ pub(crate) fn verify_bundle_pinned(
     gate: &str,
     executors: &[String],
 ) -> Result<String, String> {
+    verify_bundle_anchored(bundle_json, gate, executors, None, "")
+}
+
+/// [`verify_bundle_pinned`] with a `tempus.anchor.v1` for the bundle's checkpoint. The trust
+/// roots come from the verifier, like the gate key; a failed anchor makes the verdict INVALID.
+pub(crate) fn verify_bundle_anchored(
+    bundle_json: &str,
+    gate: &str,
+    executors: &[String],
+    anchor_json: Option<&str>,
+    roots_json: &str,
+) -> Result<String, String> {
+    let roots = crate::anchor::TrustRoots::parse(roots_json)?;
     let (gate, executors) = normalize_pinned(gate, executors)?;
     let trust = Trust::Pinned {
         gate: &gate,
@@ -2862,6 +2875,35 @@ pub(crate) fn verify_bundle_pinned(
         }
     };
     result["checks"]["checkpoint"] = json!(checkpoint_check);
+
+    let anchor_report = match anchor_json {
+        None => None,
+        Some(text) => Some(
+            match bundle
+                .pointer("/checkpoint/checkpoint")
+                .filter(|value| !value.is_null())
+            {
+                Some(checkpoint) => crate::anchor::verify_text(text, checkpoint, &roots)?,
+                None => crate::anchor::AnchorReport::invalid("ANCHOR_NO_CHECKPOINT"),
+            },
+        ),
+    };
+    let anchor_check = match &anchor_report {
+        None => "NOT_PRESENT",
+        Some(report) => {
+            for code in &report.errors {
+                push_error(&mut result, code);
+            }
+            result["anchor"] = report.to_json();
+            match report.status {
+                "VERIFIED" => "VERIFIED",
+                "NOT_CHECKED" => "NOT_CHECKED",
+                _ => "FAILED",
+            }
+        }
+    };
+    result["checks"]["anchor"] = json!(anchor_check);
+
     if let Some(list) = result
         .pointer_mut("/trust/not_checked")
         .and_then(Value::as_array_mut)
@@ -2874,6 +2916,14 @@ pub(crate) fn verify_bundle_pinned(
         list.push(json!(
             "COMPLETENESS (nothing proves other actions, retries or outcomes are not hidden)"
         ));
+        if anchor_check != "VERIFIED" {
+            list.push(json!(
+                "CHECKPOINT_TIME (no anchor verified; every date in this evidence is the gate's own claim)"
+            ));
+        }
+        if let Some(report) = &anchor_report {
+            list.extend(report.not_checked().into_iter().map(Value::String));
+        }
     }
     canonicalize(&result)
 }

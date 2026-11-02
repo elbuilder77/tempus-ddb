@@ -23,6 +23,14 @@ serde_json = "1.0"
 sha2 = "0.11"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 hex = "0.4"
+# Anchor verification, shared with the browser build. RSA is verified over crypto-bigint
+# because the `rsa` crate carries an unpatched advisory (see src/sigverify.rs).
+base64 = "0.23"
+crypto-bigint = { version = "0.7", default-features = false, features = ["alloc"] }
+p256 = { version = "0.14", default-features = false, features = ["ecdsa"] }
+p384 = { version = "0.14", default-features = false, features = ["ecdsa"] }
+# The one policy evaluator: rules in a policy bundle (see src/rules.rs).
+jsonlogic-fast = "0.1.7"
 
 # The gate (SQLite, signing keys, Python bindings, dev CLI). None of this is in the
 # browser verifier, which is the wasm32 build of the same crate.

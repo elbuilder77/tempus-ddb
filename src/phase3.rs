@@ -28,6 +28,22 @@ pub(crate) const POLICY_NOT_INSTALLED_ERROR: &str = "TEMPUS_POLICY_NOT_INSTALLED
 pub(crate) const SIGNATURE_ALGORITHM: &str = "Ed25519";
 pub(crate) const IDENTITY_EVENT_SCHEMA: &str = "tempus.identity-lifecycle-event.v1";
 
+/// The decimals of a currency a policy does not mention.
+const DEFAULT_CURRENCY_EXPONENT: u64 = 2;
+const MAX_CURRENCY_EXPONENT: u64 = 8;
+/// ISO 4217 currencies whose minor unit is not a hundredth, by decimals.
+const ISO_4217_NOT_TWO_DECIMALS: &[(u64, &[&str])] = &[
+    (
+        0,
+        &[
+            "BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW", "PYG", "RWF", "UGX", "UYI",
+            "VND", "VUV", "XAF", "XOF", "XPF",
+        ],
+    ),
+    (3, &["BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"]),
+    (4, &["CLF", "UYW"]),
+];
+
 const POLICY_FIELDS: &[&str] = &[
     "allowed_action_types",
     "allowed_resources",
@@ -35,6 +51,7 @@ const POLICY_FIELDS: &[&str] = &[
     "max_ttl_seconds",
     "max_input_bytes",
     "allowed_currencies",
+    "currency_exponents",
     "max_money_amount_minor",
     "allowed_beneficiaries",
 ];
@@ -321,9 +338,10 @@ pub(crate) fn install_policy(
     issued_at: u64,
 ) -> Result<Value, String> {
     validate_policy_spec(spec)?;
+    refuse_unstated_decimals(spec)?;
     let policy_version = required_policy_string(spec, "policy_version")?;
     let tenant_id = required_policy_string(spec, "tenant_id")?;
-    let body = json!({
+    let mut body = json!({
         "schema_version": POLICY_BUNDLE_SCHEMA,
         "policy_version": policy_version,
         "tenant_id": tenant_id,
@@ -331,6 +349,10 @@ pub(crate) fn install_policy(
         "issued_at": issued_at,
         "signer": signer.identity().to_json(),
     });
+    // Absent stays absent, so a policy without rules keeps the bytes and digests it had.
+    if let Some(rules) = spec.get("rules") {
+        body["rules"] = rules.clone();
+    }
     let policy_digest = digest_json(&body)?;
     let signature = signer
         .sign(&hex::decode(&policy_digest).map_err(|e| format!("Invalid policy digest: {e}"))?)?;
@@ -759,6 +781,20 @@ pub(crate) fn evaluate_policy(
             reasons.push("POLICY_MONEY_DENIED".to_string());
         }
     }
+    if let Some(rules) = bundle.get("rules") {
+        let mut context = json!({"intent": intent, "ttl_seconds": ttl_seconds});
+        // Absent when there is none: `missing` only sees an absent key, and a null is not one.
+        if let Some(money) = intent.get("money").filter(|value| !value.is_null()) {
+            let (amount_minor, currency) =
+                validate_money(money, constraints.get("currency_exponents"))?;
+            context["money"] = json!({"amount_minor": amount_minor, "currency": currency});
+        }
+        reasons.extend(
+            crate::rules::evaluate(rules, &context)
+                .into_iter()
+                .map(str::to_string),
+        );
+    }
     if reasons.is_empty() {
         reasons.push("POLICY_ALLOWED".to_string());
     }
@@ -827,6 +863,9 @@ fn validate_policy_spec(spec: &Value) -> Result<(), String> {
     if let Some(currencies) = constraints.get("allowed_currencies") {
         exact_currency_list(currencies)?;
     }
+    if let Some(exponents) = constraints.get("currency_exponents") {
+        validate_currency_exponents(exponents)?;
+    }
     if let Some(beneficiaries) = constraints.get("allowed_beneficiaries") {
         pattern_list(Some(beneficiaries), "allowed_beneficiaries")?;
     }
@@ -837,6 +876,9 @@ fn validate_policy_spec(spec: &Value) -> Result<(), String> {
                     .to_string(),
             );
         }
+    }
+    if let Some(rules) = spec.get("rules") {
+        crate::rules::validate(rules)?;
     }
     Ok(())
 }
@@ -979,6 +1021,57 @@ fn exact_currency_list(value: &Value) -> Result<Vec<&str>, String> {
     Ok(codes)
 }
 
+/// `currency_exponents`: how many decimals a currency has in this policy, for a currency
+/// whose minor unit is not a hundredth.
+fn validate_currency_exponents(value: &Value) -> Result<(), String> {
+    let exponents = value
+        .as_object()
+        .ok_or_else(|| "TEMPUS_POLICY_INVALID: currency_exponents must be an object".to_string())?;
+    for (code, exponent) in exponents {
+        if !is_exact_currency_code(code) {
+            return Err(format!(
+                "TEMPUS_POLICY_INVALID: currency_exponents keys must be exact currency codes ({code})"
+            ));
+        }
+        if !exponent
+            .as_u64()
+            .is_some_and(|value| value <= MAX_CURRENCY_EXPONENT)
+        {
+            return Err(format!(
+                "TEMPUS_POLICY_INVALID: currency_exponents.{code} must be an integer from 0 to {MAX_CURRENCY_EXPONENT}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Installing a policy that lists one of these currencies without stating its decimals is
+/// refused: read in hundredths, `"500"` yen would meet a limit as 50000. A policy already
+/// stored or signed stays what it says, so this is never applied when a bundle is read.
+fn refuse_unstated_decimals(spec: &Value) -> Result<(), String> {
+    let constraints = spec.get("constraints");
+    let Some(currencies) = constraints.and_then(|value| value.get("allowed_currencies")) else {
+        return Ok(());
+    };
+    let stated = constraints.and_then(|value| value.get("currency_exponents"));
+    for code in exact_currency_list(currencies)? {
+        if stated.is_some_and(|exponents| exponents.get(code).is_some()) {
+            continue;
+        }
+        if let Some((decimals, _)) = ISO_4217_NOT_TWO_DECIMALS
+            .iter()
+            .find(|(_, codes)| codes.contains(&code))
+        {
+            return Err(format!(
+                "TEMPUS_POLICY_INVALID: allowed_currencies names {code}, which has {decimals} \
+                 decimals in ISO 4217: state it with \"currency_exponents\": {{\"{code}\": {decimals}}}, \
+                 or {{\"{code}\": 2}} to keep reading it in hundredths"
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Payment action types the gate and the payment executor both recognize.
 pub(crate) fn is_payment_action(action_type: &str) -> bool {
     matches!(
@@ -997,8 +1090,14 @@ pub(crate) fn reject_payment_without_money(
     }
     match intent.get("money") {
         Some(money) if money.is_object() => {
-            let (amount, _) = validate_money(money)?;
-            if amount == 0 {
+            validate_money_shape(money)?;
+            // Zero is zero in any currency, so this holds before the policy is known.
+            let zero_text = money
+                .get("amount")
+                .and_then(Value::as_str)
+                .is_some_and(|text| text.bytes().all(|byte| matches!(byte, b'0' | b'.')));
+            let zero_minor = money.get("amount_minor").and_then(Value::as_u64) == Some(0);
+            if zero_text || zero_minor {
                 Err(
                     "TEMPUS_INVALID_CONTRACT: a payment action requires a non-zero amount"
                         .to_string(),
@@ -1035,13 +1134,8 @@ fn pattern_list<'a>(value: Option<&'a Value>, field: &str) -> Result<Vec<&'a str
         .collect()
 }
 
-/// The one reading of an intent's `money` that the policy evaluates and the executors use.
-///
-/// Amounts are minor units with two decimals. `amount` (decimal string) and `amount_minor`
-/// (unsigned integer) are two spellings of one value, and `currency` and `asset` are two
-/// names for one field: if both spellings are present they must agree, and a field of the
-/// wrong type is an error rather than being skipped.
-pub(crate) fn validate_money(money: &Value) -> Result<(u64, String), String> {
+/// The names in an intent's `money`: its one currency, and a beneficiary of the right type.
+fn money_currency(money: &Value) -> Result<String, String> {
     let name = |field: &str| -> Result<Option<&str>, String> {
         match money.get(field) {
             None => Ok(None),
@@ -1081,21 +1175,80 @@ pub(crate) fn validate_money(money: &Value) -> Result<(u64, String), String> {
             );
         }
     }
-    let from_text = match money.get("amount") {
-        None => None,
-        Some(Value::String(text)) => Some(parse_minor_units(text)?),
+    Ok(currency)
+}
+
+fn money_amount_text(money: &Value) -> Result<Option<&str>, String> {
+    match money.get("amount") {
+        None => Ok(None),
+        Some(Value::String(text)) => Ok(Some(text)),
         Some(_) => {
-            return Err(
-                "TEMPUS_INVALID_CONTRACT: money.amount must be a decimal string".to_string(),
-            )
+            Err("TEMPUS_INVALID_CONTRACT: money.amount must be a decimal string".to_string())
         }
+    }
+}
+
+fn money_amount_minor(money: &Value) -> Result<Option<u64>, String> {
+    money
+        .get("amount_minor")
+        .map(|value| {
+            value.as_u64().ok_or_else(|| {
+                "TEMPUS_INVALID_CONTRACT: money.amount_minor must be an unsigned integer"
+                    .to_string()
+            })
+        })
+        .transpose()
+}
+
+/// What an intent's `money` must be whatever policy reads it. How many decimals its currency
+/// has is the policy's to say, so an amount is only read in `validate_money`.
+pub(crate) fn validate_money_shape(money: &Value) -> Result<(), String> {
+    money_currency(money)?;
+    let text = money_amount_text(money)?;
+    let minor = money_amount_minor(money)?;
+    match text {
+        Some(text) if !is_decimal(text, MAX_CURRENCY_EXPONENT) => {
+            Err(amount_error(MAX_CURRENCY_EXPONENT))
+        }
+        None if minor.is_none() => {
+            Err("TEMPUS_INVALID_CONTRACT: money.amount must be a decimal string".to_string())
+        }
+        _ => Ok(()),
+    }
+}
+
+/// The decimals of a currency in this policy: what `currency_exponents` says, or two.
+fn currency_exponent(exponents: Option<&Value>, currency: &str) -> Result<u64, String> {
+    let Some(exponent) = exponents.and_then(|value| value.get(currency)) else {
+        return Ok(DEFAULT_CURRENCY_EXPONENT);
     };
-    let from_minor = match money.get("amount_minor") {
-        None => None,
-        Some(value) => Some(value.as_u64().ok_or_else(|| {
-            "TEMPUS_INVALID_CONTRACT: money.amount_minor must be an unsigned integer".to_string()
-        })?),
-    };
+    exponent
+        .as_u64()
+        .filter(|value| *value <= MAX_CURRENCY_EXPONENT)
+        .ok_or_else(|| {
+            format!(
+                "TEMPUS_POLICY_INVALID: currency_exponents.{currency} must be an integer from 0 to {MAX_CURRENCY_EXPONENT}"
+            )
+        })
+}
+
+/// The one reading of an intent's `money` that the policy evaluates and the executors use.
+///
+/// Amounts are minor units: `exponents` (the policy's `currency_exponents`) says how many
+/// decimals a currency has, and any other currency has two. `amount` (decimal string) and
+/// `amount_minor` (unsigned integer) are two spellings of one value, and `currency` and
+/// `asset` are two names for one field: if both spellings are present they must agree, and a
+/// field of the wrong type is an error rather than being skipped.
+pub(crate) fn validate_money(
+    money: &Value,
+    exponents: Option<&Value>,
+) -> Result<(u64, String), String> {
+    let currency = money_currency(money)?;
+    let exponent = currency_exponent(exponents, &currency)?;
+    let from_text = money_amount_text(money)?
+        .map(|text| parse_minor_units(text, exponent))
+        .transpose()?;
+    let from_minor = money_amount_minor(money)?;
     let amount = match (from_text, from_minor) {
         (Some(text), Some(minor)) if text != minor => {
             return Err(format!(
@@ -1117,7 +1270,7 @@ fn money_allowed(
     constraints: &serde_json::Map<String, Value>,
     money: &Value,
 ) -> Result<bool, String> {
-    let (amount, currency) = validate_money(money)?;
+    let (amount, currency) = validate_money(money, constraints.get("currency_exponents"))?;
     let currency = currency.as_str();
     if let Some(currencies) = constraints.get("allowed_currencies") {
         // Exact codes only.
@@ -1141,33 +1294,45 @@ fn money_allowed(
         .is_none_or(|maximum| amount <= maximum))
 }
 
-fn parse_minor_units(value: &str) -> Result<u64, String> {
-    // A decimal point must be followed by one or two digits ("5." is not "5"): executors
-    // read this same grammar, and a gate that accepted more would burn permits they refuse.
+/// ASCII digits, and a `.` followed by at least one digit ("5." is not "5"): executors read
+/// this same grammar, and a gate that accepted more would burn permits they refuse.
+fn is_decimal(value: &str, max_fractional_digits: u64) -> bool {
     let (whole, fractional) = value.split_once('.').unwrap_or((value, ""));
-    if whole.is_empty()
-        || !whole.bytes().all(|byte| byte.is_ascii_digit())
-        || (value.contains('.') && fractional.is_empty())
-        || fractional.len() > 2
-        || !fractional.bytes().all(|byte| byte.is_ascii_digit())
-    {
-        return Err(
-            "TEMPUS_INVALID_CONTRACT: money.amount must be an unsigned decimal with at most two fractional digits"
-                .to_string(),
-        );
-    }
-    let whole = whole
-        .parse::<u64>()
-        .map_err(|_| "TEMPUS_INVALID_CONTRACT: money.amount is too large".to_string())?;
-    let fraction = match fractional.len() {
-        0 => 0,
-        1 => fractional.parse::<u64>().unwrap_or(0) * 10,
-        _ => fractional.parse::<u64>().unwrap_or(0),
+    !whole.is_empty()
+        && whole.bytes().all(|byte| byte.is_ascii_digit())
+        && !(value.contains('.') && fractional.is_empty())
+        && fractional.len() as u64 <= max_fractional_digits
+        && fractional.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn amount_error(max_fractional_digits: u64) -> String {
+    const WORDS: [&str; 9] = [
+        "no", "one", "two", "three", "four", "five", "six", "seven", "eight",
+    ];
+    let digits = match max_fractional_digits {
+        0 => "no".to_string(),
+        count => format!("at most {}", WORDS[count as usize]),
     };
+    format!(
+        "TEMPUS_INVALID_CONTRACT: money.amount must be an unsigned decimal with {digits} fractional digits"
+    )
+}
+
+fn parse_minor_units(value: &str, exponent: u64) -> Result<u64, String> {
+    if !is_decimal(value, exponent) {
+        return Err(amount_error(exponent));
+    }
+    let too_large = || "TEMPUS_INVALID_CONTRACT: money.amount is too large".to_string();
+    let (whole, fractional) = value.split_once('.').unwrap_or((value, ""));
+    let whole = whole.parse::<u64>().map_err(|_| too_large())?;
+    // At most eight digits, so neither the digits nor the scale can overflow.
+    let exponent = exponent as u32;
+    let fraction =
+        fractional.parse::<u64>().unwrap_or(0) * 10u64.pow(exponent - fractional.len() as u32);
     whole
-        .checked_mul(100)
+        .checked_mul(10u64.pow(exponent))
         .and_then(|value| value.checked_add(fraction))
-        .ok_or_else(|| "TEMPUS_INVALID_CONTRACT: money.amount is too large".to_string())
+        .ok_or_else(too_large)
 }
 
 fn contains_non_integer_number(value: &Value) -> bool {
@@ -1556,7 +1721,7 @@ mod tests {
 
     #[test]
     fn money_has_one_reading_for_policy_and_executors() {
-        let ok = |money: Value| validate_money(&money).unwrap();
+        let ok = |money: Value| validate_money(&money, None).unwrap();
         assert_eq!(
             ok(json!({"amount": "25.5", "asset": "USD"})),
             (2550, "USD".into())
@@ -1593,7 +1758,7 @@ mod tests {
             json!({"asset": "USD"}),
             json!({"amount": "1.00"}),
         ] {
-            let error = validate_money(&money).unwrap_err();
+            let error = validate_money(&money, None).unwrap_err();
             assert!(
                 error.starts_with("TEMPUS_INVALID_CONTRACT"),
                 "{money}: {error}"
@@ -1604,7 +1769,8 @@ mod tests {
     #[test]
     fn currency_codes_must_be_exact() {
         for asset in ["usd", "USD ", "USD\u{200b}", "ＵＳＤ", "US*", "*"] {
-            let error = validate_money(&json!({"amount": "1.00", "asset": asset})).unwrap_err();
+            let error =
+                validate_money(&json!({"amount": "1.00", "asset": asset}), None).unwrap_err();
             assert!(
                 error.contains("exact 3-letter currency code"),
                 "{asset:?}: {error}"
@@ -1702,7 +1868,8 @@ mod tests {
             "１.００",
             "184467440737095516.16",
         ] {
-            let error = validate_money(&json!({"amount": amount, "asset": "USD"})).unwrap_err();
+            let error =
+                validate_money(&json!({"amount": amount, "asset": "USD"}), None).unwrap_err();
             assert!(
                 error.starts_with("TEMPUS_INVALID_CONTRACT"),
                 "{amount}: {error}"
@@ -1710,7 +1877,7 @@ mod tests {
         }
         for minor in [json!(-1), json!("100"), json!(true), json!(1.5)] {
             let money = json!({"amount_minor": minor, "asset": "USD"});
-            let error = validate_money(&money).unwrap_err();
+            let error = validate_money(&money, None).unwrap_err();
             assert!(error.contains("amount_minor"), "{money}: {error}");
         }
         let constraints = json!({
@@ -1724,11 +1891,211 @@ mod tests {
             money_allowed(constraints, &json!({"amount": "00050.00", "asset": "USD"})).unwrap()
         );
         assert_eq!(
-            validate_money(&json!({"amount": "00050.00", "asset": "USD"}))
+            validate_money(&json!({"amount": "00050.00", "asset": "USD"}), None)
                 .unwrap()
                 .0,
             5000
         );
+    }
+
+    #[test]
+    fn an_amount_is_read_in_the_decimals_of_its_currency() {
+        let exponents = json!({"JPY": 0, "KWD": 3, "XTS": 8});
+        let read = |amount: &str, asset: &str| {
+            validate_money(&json!({"amount": amount, "asset": asset}), Some(&exponents))
+        };
+        for (amount, asset, minor) in [
+            ("5", "JPY", 5),
+            ("500", "JPY", 500),
+            ("18446744073709551615", "JPY", u64::MAX),
+            ("1.234", "KWD", 1234),
+            ("1.2", "KWD", 1200),
+            ("1", "KWD", 1000),
+            ("18446744073709551.615", "KWD", u64::MAX),
+            ("25.5", "USD", 2550),
+            ("25", "USD", 2500),
+            ("0.00000001", "XTS", 1),
+            ("1.5", "XTS", 150_000_000),
+        ] {
+            assert_eq!(read(amount, asset).unwrap().0, minor, "{amount} {asset}");
+        }
+        for (amount, asset, why) in [
+            ("5.5", "JPY", "with no fractional digits"),
+            ("5.00", "JPY", "with no fractional digits"),
+            ("1.2345", "KWD", "at most three fractional"),
+            ("1.234", "USD", "at most two fractional"),
+            ("1.123456789", "XTS", "at most eight fractional"),
+            ("18446744073709551616", "JPY", "too large"),
+            ("18446744073709551.616", "KWD", "too large"),
+        ] {
+            let error = read(amount, asset).unwrap_err();
+            assert!(error.contains(why), "{amount} {asset}: {error}");
+        }
+        let two = |amount: &str, minor: u64| {
+            validate_money(
+                &json!({"amount": amount, "amount_minor": minor, "asset": "JPY"}),
+                Some(&exponents),
+            )
+        };
+        assert_eq!(two("500", 500).unwrap().0, 500);
+        assert!(two("500", 50_000).unwrap_err().contains("disagree"));
+    }
+
+    #[test]
+    fn without_a_stated_exponent_every_currency_has_two_decimals() {
+        let yen = json!({"amount": "500", "asset": "JPY"});
+        assert_eq!(validate_money(&yen, None).unwrap().0, 50_000);
+        let others = json!({"KWD": 3});
+        assert_eq!(validate_money(&yen, Some(&others)).unwrap().0, 50_000);
+        let stated = json!({"JPY": 2});
+        assert_eq!(validate_money(&yen, Some(&stated)).unwrap().0, 50_000);
+        let error = validate_money(&json!({"amount": "1.234", "asset": "KWD"}), None).unwrap_err();
+        assert!(error.contains("at most two fractional"), "{error}");
+    }
+
+    #[test]
+    fn an_exponent_out_of_range_is_an_error_when_a_bundle_is_read_too() {
+        // A reader evaluates a bundle it has already refused: this must not reach `pow`.
+        for exponent in [json!(9), json!(4_000_000_000u64), json!(-1), json!("2")] {
+            let exponents = json!({"JPY": exponent});
+            let money = json!({"amount": "5", "asset": "JPY"});
+            let error = validate_money(&money, Some(&exponents)).unwrap_err();
+            assert!(error.contains("currency_exponents.JPY"), "{error}");
+        }
+    }
+
+    #[test]
+    fn the_shape_of_money_does_not_depend_on_the_policy() {
+        for money in [
+            json!({"amount": "1.234", "asset": "KWD"}),
+            json!({"amount": "1.12345678", "asset": "XTS"}),
+            json!({"amount": "99999999999999999999999", "asset": "JPY"}),
+            json!({"amount_minor": 5, "currency": "JPY"}),
+            json!({"amount": "500", "amount_minor": 50_000, "asset": "JPY"}),
+        ] {
+            assert!(validate_money_shape(&money).is_ok(), "{money}");
+        }
+        for money in [
+            json!({"amount": "1.123456789", "asset": "XTS"}),
+            json!({"amount": "5.", "asset": "USD"}),
+            json!({"amount": ".5", "asset": "USD"}),
+            json!({"amount": "", "asset": "USD"}),
+            json!({"amount": "abc", "asset": "USD"}),
+            json!({"amount": 5, "asset": "USD"}),
+            json!({"amount_minor": "5", "asset": "USD"}),
+            json!({"asset": "USD"}),
+            json!({"amount": "5"}),
+            json!({"amount": "5", "asset": "usd"}),
+            json!({"amount": "5", "asset": "USD", "currency": "EUR"}),
+            json!({"amount": "5", "asset": "USD", "beneficiary": 1}),
+        ] {
+            let error = validate_money_shape(&money).unwrap_err();
+            assert!(
+                error.starts_with("TEMPUS_INVALID_CONTRACT"),
+                "{money}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_payment_of_zero_is_refused_in_any_currency() {
+        let charge =
+            |money: Value| reject_payment_without_money("payment.charge", &json!({"money": money}));
+        for money in [
+            json!({"amount": "0", "asset": "JPY"}),
+            json!({"amount": "000", "asset": "JPY"}),
+            json!({"amount": "0.000", "asset": "KWD"}),
+            json!({"amount": "0.00000000", "asset": "XTS"}),
+            json!({"amount_minor": 0, "asset": "JPY"}),
+        ] {
+            let error = charge(money.clone()).unwrap_err();
+            assert!(error.contains("non-zero"), "{money}: {error}");
+        }
+        assert!(charge(json!({"amount": "0.001", "asset": "KWD"})).is_ok());
+        assert!(charge(json!({"amount_minor": 1, "asset": "JPY"})).is_ok());
+    }
+
+    #[test]
+    fn currency_exponents_are_closed() {
+        for good in [json!({}), json!({"JPY": 0, "KWD": 3, "XTS": 8})] {
+            assert!(validate_currency_exponents(&good).is_ok(), "{good}");
+        }
+        for bad in [
+            json!("JPY"),
+            json!(["JPY"]),
+            json!({"jpy": 0}),
+            json!({"JPYX": 0}),
+            json!({"J*": 0}),
+            json!({"JPY": 9}),
+            json!({"JPY": -1}),
+            json!({"JPY": "0"}),
+            json!({"JPY": true}),
+            json!({"JPY": null}),
+            json!({"JPY": 1.5}),
+        ] {
+            let error = validate_currency_exponents(&bad).unwrap_err();
+            assert!(error.contains("currency_exponents"), "{bad}: {error}");
+        }
+    }
+
+    #[test]
+    fn installing_a_currency_without_stating_its_decimals_is_refused() {
+        let spec = |currencies: Value, exponents: Option<Value>| {
+            let mut constraints = json!({"allowed_currencies": currencies});
+            if let Some(exponents) = exponents {
+                constraints["currency_exponents"] = exponents;
+            }
+            json!({"constraints": constraints})
+        };
+        for (decimals, codes) in ISO_4217_NOT_TWO_DECIMALS {
+            for code in *codes {
+                let error = refuse_unstated_decimals(&spec(json!([code]), None)).unwrap_err();
+                assert!(
+                    error.contains(code) && error.contains(&format!("has {decimals} decimals")),
+                    "{error}"
+                );
+                let stated = spec(json!(["USD", code]), Some(json!({*code: decimals})));
+                assert!(refuse_unstated_decimals(&stated).is_ok(), "{code}");
+                // Operator opt-in to the old reading.
+                let hundredths = spec(json!([code]), Some(json!({*code: 2})));
+                assert!(refuse_unstated_decimals(&hundredths).is_ok(), "{code}");
+            }
+        }
+        assert_eq!(
+            ISO_4217_NOT_TWO_DECIMALS
+                .iter()
+                .map(|(_, codes)| codes.len())
+                .sum::<usize>(),
+            26
+        );
+        assert!(refuse_unstated_decimals(&spec(json!(["USD", "EUR"]), None)).is_ok());
+        assert!(refuse_unstated_decimals(&json!({"constraints": {}})).is_ok());
+        let another = spec(json!(["JPY"]), Some(json!({"KWD": 3})));
+        assert!(refuse_unstated_decimals(&another).is_err());
+    }
+
+    #[test]
+    fn a_stored_policy_that_names_yen_stays_what_it_says() {
+        // Refused for a new install, but a bundle already signed is read as it always was.
+        let spec = json!({
+            "schema_version": POLICY_BUNDLE_SCHEMA,
+            "policy_version": "stored-v1",
+            "tenant_id": "acme",
+            "constraints": {
+                "allowed_action_types": ["*"],
+                "allowed_resources": ["*"],
+                "allowed_executors": ["*"],
+                "max_ttl_seconds": 60,
+                "max_input_bytes": 1024,
+                "allowed_currencies": ["JPY"],
+                "max_money_amount_minor": 1000
+            }
+        });
+        assert!(validate_policy_spec(&spec).is_ok());
+        let constraints = spec["constraints"].as_object().unwrap();
+        let yen = |amount: &str| json!({"amount": amount, "asset": "JPY"});
+        assert!(!money_allowed(constraints, &yen("500")).unwrap());
+        assert!(money_allowed(constraints, &yen("10")).unwrap());
     }
 
     struct TestRemoteSigner {

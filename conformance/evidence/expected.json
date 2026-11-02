@@ -2,9 +2,9 @@
   "schema_version": "tempus.conformance-evidence.v1",
   "gate_public_key_file": "gate_public_key.txt",
   "executor_public_key_file": "executor_public_key.txt",
-  "action_id": "8e66f98fc4688b9cc7928f27f37545f6e017a00346ffbccfdb5d7a9e9c8ef6bc",
-  "bundle_digest": "39e91625118f5fd602eafddd70cc3b4e338aabc26fb9dac3dcc1cc0e827d82fb",
-  "verify_url": "https://tempus-protocol.github.io/tempus-ddb/verify.html#bundle=39e91625118f5fd602eafddd70cc3b4e338aabc26fb9dac3dcc1cc0e827d82fb",
+  "action_id": "8ae9426e052a3e66acb41900362a2b757032f0a372eb982d82dc9bc1129cac97",
+  "bundle_digest": "b06eecf8e59575fff148a7041475f5007eccb2043bccc92dd3481b6891baca73",
+  "verify_url": "https://tempus-protocol.github.io/tempus-ddb/verify.html#bundle=b06eecf8e59575fff148a7041475f5007eccb2043bccc92dd3481b6891baca73",
   "cases": [
     {
       "file": "bundle.json",
@@ -89,6 +89,132 @@
         "execution": "NOT_PRESENT"
       },
       "errors": []
+    },
+    {
+      "file": "permit_rules_allowed.json",
+      "note": "A policy with a rule on the amount, and an amount under it. The verifier runs the rule again.",
+      "kind": "authorization",
+      "status": "VERIFIED",
+      "checks": {
+        "authorization": "VERIFIED"
+      },
+      "errors": []
+    },
+    {
+      "file": "permit_rules_yen.json",
+      "note": "500 yen under the same limit of 1000 minor units: the signed policy says JPY has no decimals. Read in hundredths it would be 50000, over the limit, and this permit would not reproduce.",
+      "kind": "authorization",
+      "status": "VERIFIED",
+      "checks": {
+        "authorization": "VERIFIED"
+      },
+      "errors": []
+    },
+    {
+      "file": "permit_rules_denied.json",
+      "note": "The same policy and an amount over it: a true record of a refusal (POLICY_RULES_DENIED) is valid evidence.",
+      "kind": "authorization",
+      "status": "VERIFIED",
+      "checks": {
+        "authorization": "VERIFIED"
+      },
+      "errors": []
+    },
+    {
+      "file": "permit_rules_forged_allow.json",
+      "note": "The gate's own key signs an ALLOWED that its own rule denies. Every signature is good; only running the rule again finds the lie.",
+      "kind": "authorization",
+      "status": "INVALID",
+      "errors_include": [
+        "AUTHORIZATION_POLICY_DECISION_MISMATCH",
+        "AUTHORIZATION_DECISION_NOT_REPRODUCIBLE",
+        "AUTHORIZATION_REASON_CODES_NOT_REPRODUCIBLE"
+      ]
+    },
+    {
+      "file": "permit_rules_edited.json",
+      "note": "The limit in the rule edited after the gate signed the policy.",
+      "kind": "authorization",
+      "status": "INVALID",
+      "errors_include": [
+        "TEMPUS_POLICY_DIGEST_MISMATCH"
+      ]
+    }
+  ],
+  "anchor_bundle": "bundle.json",
+  "anchor_cases": [
+    {
+      "anchor": "anchor.json",
+      "roots": "anchor_roots.json",
+      "note": "A Rekor proof and a timestamp token for the checkpoint in bundle.json, with the reader's roots pinned: the checkpoint existed no later than anchored_at.",
+      "status": "VERIFIED",
+      "proofs": [
+        "VERIFIED",
+        "VERIFIED"
+      ],
+      "errors": []
+    },
+    {
+      "anchor": "anchor.json",
+      "roots": null,
+      "note": "The same anchor with nothing pinned. It is about the right checkpoint, but nothing says who signed it, so no date is claimed.",
+      "status": "NOT_CHECKED",
+      "proofs": [
+        "NOT_CHECKED",
+        "NOT_CHECKED"
+      ],
+      "errors": []
+    },
+    {
+      "anchor": "anchor_tampered_time.json",
+      "roots": "anchor_roots.json",
+      "note": "The log's time edited after the fact: its signed entry timestamp no longer verifies. One failed proof sinks the anchor however good the others are.",
+      "status": "INVALID",
+      "proofs": [
+        "FAILED",
+        "VERIFIED"
+      ],
+      "errors": [
+        "ANCHOR_REKOR_SET_INVALID"
+      ]
+    },
+    {
+      "anchor": "anchor_tampered_token.json",
+      "roots": "anchor_roots.json",
+      "note": "The timestamp token replaced by other bytes.",
+      "status": "INVALID",
+      "proofs": [
+        "VERIFIED",
+        "FAILED"
+      ],
+      "errors": [
+        "ANCHOR_TSA_TOKEN_MALFORMED"
+      ]
+    },
+    {
+      "anchor": "anchor_other_checkpoint.json",
+      "roots": "anchor_roots.json",
+      "note": "A valid anchor for a later checkpoint of the same tenant, read against this one. The wrapper names the other checkpoint, and so does the logged entry.",
+      "status": "INVALID",
+      "proofs": [
+        "FAILED"
+      ],
+      "errors": [
+        "ANCHOR_CHECKPOINT_MISMATCH",
+        "ANCHOR_REKOR_ENTRY_MISMATCH"
+      ]
+    },
+    {
+      "anchor": "anchor_unknown_log.json",
+      "roots": "anchor_roots.json",
+      "note": "A well-formed proof from a log the reader did not pin.",
+      "status": "INVALID",
+      "proofs": [
+        "FAILED"
+      ],
+      "errors": [
+        "ANCHOR_REKOR_LOG_UNKNOWN"
+      ]
     }
   ]
 }

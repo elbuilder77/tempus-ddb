@@ -103,6 +103,16 @@ staying silent. A document checked against the database it came from is reported
 independent. The rules are in [SPEC.md](SPEC.md); the attacks considered are in
 [THREAT_MODEL.md](THREAT_MODEL.md).
 
+Dates are the gate's own claim until they are anchored. `tempus anchor create` proves a
+checkpoint's hash to a public log and a timestamp authority, and the verifier then says "this
+checkpoint existed no later than" a date, for anyone who pins their roots:
+
+```bash
+tempus verify-bundle --bundle evidence.json --gate-public-key <64 hex> \
+    --anchor evidence.anchor.json --rekor-public-key rekor.pub --tsa-root tsa-root.pem \
+    --require-anchor
+```
+
 ## How it works
 
 ```text
@@ -163,7 +173,7 @@ Packaged executors exist for GitHub, HTTP webhooks, Slack and payments: see the
 
 ## The protocol
 
-Fifteen `.v1` contracts, specified in [SPEC.md](SPEC.md) with conformance fixtures in
+Sixteen `.v1` contracts, specified in [SPEC.md](SPEC.md) with conformance fixtures in
 `conformance/evidence/` that the native verifier and the browser verifier are tested
 against. Stable for the whole `0.x` line ([COMPATIBILITY.md](COMPATIBILITY.md)).
 
@@ -184,9 +194,10 @@ against. Stable for the whole `0.x` line ([COMPATIBILITY.md](COMPATIBILITY.md)).
 | Event-stream event | `tempus.event-stream-event.v1` | — (hash-linked) |
 | Checkpoint | `tempus.checkpoint.v1` | gate |
 | Evidence bundle | `tempus.evidence-bundle.v1` | — (carries the above) |
+| Anchor | `tempus.anchor.v1` | — (each proof authenticates itself) |
 
-Verification results are `tempus.trace-verification.v1` and
-`tempus.checkpoint-verification.v1`.
+Verification results are `tempus.trace-verification.v1`, `tempus.checkpoint-verification.v1` and
+`tempus.anchor-verification.v1`.
 
 ## Built on Tempus
 
@@ -205,9 +216,9 @@ Milestones: [ROADMAP.md](ROADMAP.md).
 
 Tempus detects altered or forged receipts, policies, evidence and traces; rejects
 unregistered or revoked actors; refuses conflicting idempotent requests; and prevents two
-outcomes from consuming one permit. It does not yet prevent deletion of an entire gate
-database without an external anchor (0.8), nor bypass by an agent that still holds a
-downstream credential. Read [THREAT_MODEL.md](THREAT_MODEL.md) before relying on it for
+outcomes from consuming one permit. It does not prevent deletion of an entire gate database:
+an anchored checkpoint kept outside the host makes that detectable, up to its date. Nor does it
+prevent bypass by an agent that still holds a downstream credential. Read [THREAT_MODEL.md](THREAT_MODEL.md) before relying on it for
 high-impact actions, and [SECURITY.md](SECURITY.md) to report a vulnerability.
 
 ## Development

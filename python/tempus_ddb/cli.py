@@ -1,4 +1,5 @@
 import argparse
+import datetime
 import hashlib
 import json
 import math
@@ -14,10 +15,12 @@ from ._tempus_ddb import (
     TempusDDB,
     bundle_digest,
     gen_keys,
+    verify_anchor,
     verify_bundle,
     verify_checkpoint,
     verify_receipt,
 )
+from .anchor import BACKENDS, AnchorError, checkpoint_from_text, create_anchor
 from .mcp_server import main_sync
 
 # --- Default paths (used when global args are not provided) ---
@@ -504,6 +507,19 @@ def _apply_requirements(parsed, args):
             f"checkpoint (required VERIFIED, got "
             f"{parsed.get('checks', {}).get('checkpoint', 'NOT_PRESENT')})"
         )
+    anchored_before = getattr(args, "anchored_before_micros", None)
+    if getattr(args, "require_anchor", False) or anchored_before is not None:
+        state = parsed.get("checks", {}).get("anchor", "NOT_PRESENT")
+        if state != "VERIFIED":
+            unmet.append(f"anchor (required VERIFIED, got {state})")
+        elif (
+            anchored_before is not None
+            and parsed["anchor"]["anchored_at"] > anchored_before
+        ):
+            unmet.append(
+                f"anchor date (required at or before {args.anchored_before}, got "
+                f"{_format_micros(parsed['anchor']['anchored_at'])})"
+            )
     if unmet:
         parsed["status"] = "INVALID"
         parsed.setdefault("errors", []).extend(
@@ -512,9 +528,41 @@ def _apply_requirements(parsed, args):
     return parsed
 
 
+def _format_micros(micros):
+    moment = datetime.datetime.fromtimestamp(
+        micros // 1_000_000, tz=datetime.timezone.utc
+    )
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _parse_date_micros(text):
+    """Microseconds of an ISO 8601 date (the end of that day, UTC) or date and time."""
+    raw = text.strip()
+    if len(raw) == 8 and raw.isdigit():
+        raw = f"{raw[:4]}-{raw[4:6]}-{raw[6:]}"
+    try:
+        if len(raw) == 10:
+            day = datetime.date.fromisoformat(raw)
+            moment = datetime.datetime.combine(day, datetime.time.max)
+        else:
+            moment = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"--anchored-before: not an ISO 8601 date: {text}") from exc
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=datetime.timezone.utc)
+    since = moment - datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
+    return (since.days * 86_400 + since.seconds) * 1_000_000 + since.microseconds
+
+
 def _print_verification(result_json, args=None):
     parsed = _apply_requirements(json.loads(result_json), args)
     print(json.dumps(parsed, indent=2))
+    anchor = parsed.get("anchor") or {}
+    if parsed.get("status") == "VERIFIED" and anchor.get("status") == "VERIFIED":
+        print(
+            f"This checkpoint existed no later than {_format_micros(anchor['anchored_at'])}.",
+            file=sys.stderr,
+        )
     if parsed.get("output_degraded") is True:
         print(
             "NOTE: the executor recorded a degraded output (_tempus_output_degraded): the "
@@ -624,11 +672,108 @@ def run_verify_bundle(args):
         if gate_key is None:
             raise ValueError("--gate-public-key is required")
         bundle = _read_text_argument(args.bundle, "bundle")
-        result = verify_bundle(bundle, gate_key, executors or None)
+        if args.anchored_before is not None:
+            args.anchored_before_micros = _parse_date_micros(args.anchored_before)
+        roots = _anchor_roots_json(args)
+        if args.anchor is None and (args.rekor_public_key or args.tsa_root):
+            raise ValueError("--rekor-public-key and --tsa-root need --anchor")
+        anchor = None if args.anchor is None else _read_text_argument(args.anchor, "anchor")
+        result = verify_bundle(bundle, gate_key, executors or None, anchor, roots)
     except Exception as exc:
         print(f"[ERROR] Bundle verification failed: {exc}", file=sys.stderr)
         sys.exit(1)
     _print_verification(result, args)
+
+
+def _read_anchor_root(value):
+    """A trust root given as a file, or as PEM or base64 text."""
+    if os.path.isfile(value):
+        with open(value, encoding="utf-8") as handle:
+            return handle.read()
+    return value
+
+
+def _anchor_roots_json(args):
+    return json.dumps(
+        {
+            "rekor_public_keys": [_read_anchor_root(k) for k in args.rekor_public_key or []],
+            "tsa_roots": [_read_anchor_root(r) for r in args.tsa_root or []],
+        }
+    )
+
+
+def _write_atomically(path, text):
+    temporary = f"{path}.tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    os.replace(temporary, path)
+
+
+def run_anchor_create(args):
+    """Get proof from a public log and a timestamp authority that a checkpoint exists."""
+    try:
+        checkpoint = _read_text_argument(args.checkpoint, "checkpoint")
+        existing = None
+        if args.out and os.path.exists(args.out):
+            with open(args.out, encoding="utf-8") as handle:
+                existing = handle.read()
+        document, failures = create_anchor(
+            checkpoint,
+            backends=tuple(dict.fromkeys(args.backend or BACKENDS)),
+            rekor_url=args.rekor_url,
+            tsa_url=args.tsa_url,
+            existing=existing,
+        )
+        text = json.dumps(document, indent=2)
+        if not document["proofs"]:
+            pass  # nothing worth writing
+        elif args.out:
+            _write_atomically(args.out, text + "\n")
+            print(
+                json.dumps(
+                    {
+                        "out": args.out,
+                        "checkpoint_digest": document["checkpoint_digest"],
+                        "backends": [proof["backend"] for proof in document["proofs"]],
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            print(text)
+    except (AnchorError, ValueError, OSError, RuntimeError) as exc:
+        print(f"[ERROR] Anchor failed: {exc}", file=sys.stderr)
+        sys.exit(1)
+    for backend, reason in failures.items():
+        print(f"[ERROR] {backend}: {reason}", file=sys.stderr)
+    if failures:
+        sys.exit(1)
+
+
+def run_anchor_verify(args):
+    """Verify an anchor against its checkpoint, with no database and no network."""
+    try:
+        anchor = _read_text_argument(args.anchor, "anchor")
+        checkpoint = checkpoint_from_text(_read_text_argument(args.checkpoint, "checkpoint"))
+        result = verify_anchor(anchor, json.dumps(checkpoint), _anchor_roots_json(args))
+    except (AnchorError, ValueError, OSError, RuntimeError) as exc:
+        print(f"[ERROR] Anchor verification failed: {exc}", file=sys.stderr)
+        sys.exit(1)
+    parsed = json.loads(result)
+    print(json.dumps(parsed, indent=2))
+    if parsed["status"] == "VERIFIED":
+        print(
+            f"These checkpoint bytes existed no later than {_format_micros(parsed['anchored_at'])}. "
+            "Whether a gate signed them is not checked here: verify-bundle does that with its key.",
+            file=sys.stderr,
+        )
+        return
+    if parsed["status"] == "NOT_CHECKED":
+        print(
+            "NOTE: nothing was verified: pin a trust root with --rekor-public-key or --tsa-root.",
+            file=sys.stderr,
+        )
+    sys.exit(2)
 
 
 def _gate(args):
@@ -1009,6 +1154,23 @@ def _add_require_arguments(parser, *, checkpoint=False):
         )
 
 
+def _add_anchor_root_arguments(parser):
+    """What the reader trusts. Nothing in an anchor can vouch for itself."""
+    parser.add_argument(
+        "--rekor-public-key",
+        action="append",
+        metavar="KEY",
+        help="Public key of a transparency log you trust: a file, PEM or base64 (repeatable)",
+    )
+    parser.add_argument(
+        "--tsa-root",
+        action="append",
+        metavar="CERT",
+        help="Root certificate of a timestamp authority you trust: a file, PEM or base64 "
+        "(repeatable)",
+    )
+
+
 def run_version():
     print(f"tempus {__version__}")
 
@@ -1244,6 +1406,67 @@ def main():
     )
     _add_pin_arguments(verify_bundle_p, required=True)
     _add_require_arguments(verify_bundle_p, checkpoint=True)
+    verify_bundle_p.add_argument(
+        "--anchor", help="tempus.anchor.v1 file for the bundle's checkpoint"
+    )
+    _add_anchor_root_arguments(verify_bundle_p)
+    verify_bundle_p.add_argument(
+        "--require-anchor",
+        action="store_true",
+        help="Exit 2 unless an anchor verified against a root you pinned",
+    )
+    verify_bundle_p.add_argument(
+        "--anchored-before",
+        metavar="DATE",
+        help="Exit 2 unless an anchor verified and proves the checkpoint existed at or "
+        "before this ISO 8601 date (a bare date means the end of that day, UTC)",
+    )
+
+    # anchor subcommands
+    anchor_parser = subparsers.add_parser(
+        "anchor", help="Prove with outside authorities that a checkpoint existed by a date"
+    )
+    anchor_sub = anchor_parser.add_subparsers(dest="anchor_cmd", required=True)
+    anchor_create = anchor_sub.add_parser(
+        "create",
+        help="Ask a public log and a timestamp authority for proofs. Only a hash is sent, "
+        "but a log entry is public and permanent",
+    )
+    anchor_create.add_argument(
+        "--checkpoint",
+        required=True,
+        help="Checkpoint JSON, or an evidence bundle holding one (file, or '-' for stdin)",
+    )
+    anchor_create.add_argument(
+        "--backend",
+        action="append",
+        choices=BACKENDS,
+        help="Backend to ask (repeatable; default: both, because they fail independently)",
+    )
+    anchor_create.add_argument(
+        "--rekor-url", help="Transparency log (default: https://rekor.sigstore.dev)"
+    )
+    anchor_create.add_argument(
+        "--tsa-url",
+        help="Timestamp authority (default: TEMPUS_TSA_URL or http://timestamp.digicert.com)",
+    )
+    anchor_create.add_argument(
+        "--out",
+        help="Anchor file. An existing one for this checkpoint keeps its proofs, and only "
+        "the missing backends are asked",
+    )
+    anchor_verify = anchor_sub.add_parser(
+        "verify", help="Verify an anchor against its checkpoint, offline"
+    )
+    anchor_verify.add_argument(
+        "--anchor", required=True, help="tempus.anchor.v1 file (or '-' for stdin)"
+    )
+    anchor_verify.add_argument(
+        "--checkpoint",
+        required=True,
+        help="Checkpoint JSON, or an evidence bundle holding one (file)",
+    )
+    _add_anchor_root_arguments(anchor_verify)
 
     # checkpoint subcommands
     chk_parser = subparsers.add_parser(
@@ -1348,6 +1571,11 @@ def main():
             run_export_bundle(args)
         elif args.command == "verify-bundle":
             run_verify_bundle(args)
+        elif args.command == "anchor":
+            if args.anchor_cmd == "create":
+                run_anchor_create(args)
+            else:
+                run_anchor_verify(args)
         elif args.command == "checkpoint":
             run_checkpoint(args)
         elif args.command == "guard":

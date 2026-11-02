@@ -1,5 +1,43 @@
 # Changelog
 
+## [Unreleased] — 0.8.0 "Anchor"
+
+An auditor can confirm from the verifier that a checkpoint existed on a date, without trusting the
+operator or Tempus. Policies gain rules, and amounts gain real decimals.
+
+### Added
+
+- `tempus anchor create` and `tempus anchor verify`: `tempus.anchor.v1`, a document holding proofs
+  from Rekor and an RFC 3161 timestamp authority about the hash of a signed checkpoint. Everything
+  is verified offline in Rust, in code shared with the browser verifier, against roots the reader
+  pins (`--rekor-public-key`, `--tsa-root`). With nothing pinned a proof is `NOT_CHECKED` and no
+  date is claimed. Only a hash leaves the machine, and the gate itself stays offline.
+- `tempus verify-bundle --anchor --require-anchor --anchored-before`: `checks.anchor`, `anchor` and
+  the sentence "this checkpoint existed no later than" a date. `trust.not_checked` now lists
+  `CHECKPOINT_TIME` unless an anchor verified. `verify.html` reads anchors too, and its real sample
+  carries one.
+- Optional `rules` in `tempus.policy-bundle.v1`: a strict typed subset of JsonLogic evaluated with
+  `jsonlogic-fast` (integers and strings, floats and coercion refused) and run again by every
+  verifier. New reason codes `POLICY_RULES_DENIED` and `POLICY_RULES_ERROR`, both `BLOCKED`.
+- Optional `currency_exponents` constraint: `"500"` with `{"JPY": 0}` is 500 minor units and
+  `"1.234"` with `{"KWD": 3}` is 1234. The gate, the verifiers and the contrib payment executor
+  share the reading. This closes the warning that minor units assumed two decimals.
+
+### Changed
+
+- `install-policy` refuses `allowed_currencies` naming a non-2-decimal ISO 4217 currency with no
+  exponent. `{"JPY": 2}` keeps the old reading on purpose, and stored policies are read as they
+  always were.
+- An intent's amount is read by the policy that knows its currency, so before a policy is found
+  the gate checks only the shape of `money`. With no policy installed, an amount such as `"1.234"`
+  now gets the signed `POLICY_NOT_INSTALLED` denial instead of an error. It is blocked either way.
+- `ExecutorRuntime` passes the signed policy's `currency_exponents` to an adapter that sets
+  `reads_currency_exponents = True`. Other adapters are called as before. `PaymentActionAdapter`
+  sets it, and called directly without them it refuses an intent holding only `amount_minor`
+  instead of reading it in hundredths.
+- The browser verifier grows by about 400 KB (about 405 KB to about 813 KB, or 149 KB to about
+  285 KB compressed) for the signature, DER and rules code.
+
 ## [Unreleased] — 0.7.0 "Guard"
 
 Tempus Guard for GitHub, the first installable product on the protocol. The core gets

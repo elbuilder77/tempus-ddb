@@ -70,7 +70,7 @@ for (const asset of ["site.css", "site.mjs", "trace-verifier.mjs", "trace-page.m
 for (const asset of ["tempus_verifier.js", "tempus_verifier_bg.wasm"]) {
   assert(await exists(resolve(siteRoot, "assets", "wasm", asset)), `Missing browser verifier asset assets/wasm/${asset} (run scripts/build_wasm_verifier.sh)`);
 }
-for (const sample of ["bundle.json", "bundle_tampered_decision.json", "gate_public_key.txt"]) {
+for (const sample of ["bundle.json", "bundle_tampered_decision.json", "gate_public_key.txt", "anchor.json", "anchor_roots.json"]) {
   assert(await exists(resolve(siteRoot, "data", "evidence", sample)), `Missing verifier sample data/evidence/${sample} (run scripts/generate_conformance_evidence.py)`);
 }
 for (const page of requiredPages) {
@@ -78,7 +78,7 @@ for (const page of requiredPages) {
   assert(html.includes('href="verify.html"'), `${page} must link to the browser verifier`);
 }
 const verifyPage = await readFile(resolve(siteRoot, "verify.html"), "utf8");
-for (const needle of ['id="gate-key"', 'id="evidence-file"', 'src="assets/verify-page.mjs"', "Nothing leaves this page"]) {
+for (const needle of ['id="gate-key"', 'id="evidence-file"', 'id="anchor-file"', 'id="anchor-text"', 'id="rekor-keys"', 'id="tsa-roots"', 'src="assets/verify-page.mjs"', "Nothing leaves this page"]) {
   assert(verifyPage.includes(needle), `verify.html must contain ${needle}`);
 }
 assert(!/https?:\/\/(?!tempus-protocol\.github\.io|github\.com|pypi\.org|crates\.io|docs\.rs)/.test(verifyPage), "verify.html must not reference third-party hosts");

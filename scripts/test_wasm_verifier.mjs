@@ -57,6 +57,42 @@ for (const testCase of expected.cases) {
   checked++;
 }
 
+// Anchors: alone, and alongside the bundle whose checkpoint they prove.
+const anchorBundleText = await readFile(resolve(evidenceDir, expected.anchor_bundle), "utf8");
+const anchorCheckpoint = JSON.stringify(JSON.parse(anchorBundleText).checkpoint.checkpoint);
+const bundleChecks = { VERIFIED: "VERIFIED", NOT_CHECKED: "NOT_CHECKED", INVALID: "FAILED" };
+let anchorsChecked = 0;
+for (const testCase of expected.anchor_cases) {
+  const anchorText = await readFile(resolve(evidenceDir, testCase.anchor), "utf8");
+  const roots = testCase.roots ? await readFile(resolve(evidenceDir, testCase.roots), "utf8") : "";
+  const where = `${testCase.anchor} (${testCase.roots ?? "nothing pinned"}):`;
+  const alone = JSON.parse(glue.verify_anchor(anchorText, anchorCheckpoint, roots));
+  assert(alone.schema_version === "tempus.anchor-verification.v1", `${where} unexpected schema ${alone.schema_version}`);
+  assert(alone.status === testCase.status, `${where} status ${alone.status} != ${testCase.status}: ${JSON.stringify(alone)}`);
+  assert(JSON.stringify(alone.proofs.map((proof) => proof.status)) === JSON.stringify(testCase.proofs), `${where} proofs ${JSON.stringify(alone.proofs)}`);
+  assert(JSON.stringify(alone.errors) === JSON.stringify(testCase.errors), `${where} errors ${JSON.stringify(alone.errors)}`);
+  assert((alone.anchored_at !== null) === (testCase.status === "VERIFIED"), `${where} anchored_at ${alone.anchored_at}`);
+  const inBundle = JSON.parse(glue.verify_bundle_anchored(anchorBundleText, gateKey, "", anchorText, roots));
+  assert(inBundle.checks.anchor === bundleChecks[testCase.status], `${where} checks.anchor ${inBundle.checks.anchor}`);
+  assert(inBundle.status === (testCase.status === "INVALID" ? "INVALID" : "VERIFIED"), `${where} bundle status ${inBundle.status}`);
+  for (const code of testCase.errors) {
+    assert(inBundle.errors.includes(code), `${where} bundle is missing ${code}`);
+  }
+  anchorsChecked++;
+}
+// No anchor argument is the plain verification, and it says what it cannot show.
+const unanchored = JSON.parse(glue.verify_bundle_anchored(anchorBundleText, gateKey, "", "", ""));
+assert(unanchored.status === "VERIFIED" && unanchored.checks.anchor === "NOT_PRESENT", "an empty anchor argument must mean no anchor");
+assert(JSON.stringify(unanchored.trust.not_checked).includes("CHECKPOINT_TIME"), "the checkpoint's date must be listed as not checked");
+// A root that cannot be read is a thrown error: silently dropping it would look like no pin.
+let refusedRoots = false;
+try {
+  glue.verify_anchor("{}", anchorCheckpoint, '{"tsa_roots":["AQID"]}');
+} catch (error) {
+  refusedRoots = String(error).includes("not an X.509 certificate");
+}
+assert(refusedRoots, "an unreadable trust root must be refused");
+
 // Pinning the executor key is accepted in every documented form.
 const bundleText = await readFile(resolve(evidenceDir, "bundle.json"), "utf8");
 for (const keys of [executorKey, `["${executorKey}"]`, ` ${executorKey},\n`]) {
@@ -87,4 +123,4 @@ for (const [input, needle] of [
   assert(threw, `bundle_digest(${JSON.stringify(input)}) must throw`);
 }
 
-console.log(`wasm verifier ${version}: ${checked} conformance cases, executor pinning, wrong-key, digest and malformed-input checks passed.`);
+console.log(`wasm verifier ${version}: ${checked} conformance cases, ${anchorsChecked} anchor cases, executor pinning, wrong-key, digest and malformed-input checks passed.`);

@@ -25,6 +25,38 @@ export function bundle_digest(bundle_json) {
 }
 
 /**
+ * Verify a `tempus.anchor.v1` against its checkpoint and the reader's trust roots.
+ * @param {string} anchor_json
+ * @param {string} checkpoint_json
+ * @param {string} roots_json
+ * @returns {string}
+ */
+export function verify_anchor(anchor_json, checkpoint_json, roots_json) {
+    let deferred5_0;
+    let deferred5_1;
+    try {
+        const ptr0 = passStringToWasm0(anchor_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(checkpoint_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(roots_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.verify_anchor(ptr0, len0, ptr1, len1, ptr2, len2);
+        var ptr4 = ret[0];
+        var len4 = ret[1];
+        if (ret[3]) {
+            ptr4 = 0; len4 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred5_0 = ptr4;
+        deferred5_1 = len4;
+        return getStringFromWasm0(ptr4, len4);
+    } finally {
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+    }
+}
+
+/**
  * Verify a `tempus.evidence-bundle.v1` against the pinned gate public key.
  * `executor_public_keys` is empty, a JSON array, or a comma-separated list.
  * @param {string} bundle_json
@@ -54,6 +86,45 @@ export function verify_bundle(bundle_json, gate_public_key, executor_public_keys
         return getStringFromWasm0(ptr4, len4);
     } finally {
         wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+    }
+}
+
+/**
+ * [`verify_bundle`] with a `tempus.anchor.v1` and the trust roots the reader pinned.
+ * An empty `anchor_json` means no anchor was given.
+ * @param {string} bundle_json
+ * @param {string} gate_public_key
+ * @param {string} executor_public_keys
+ * @param {string} anchor_json
+ * @param {string} roots_json
+ * @returns {string}
+ */
+export function verify_bundle_anchored(bundle_json, gate_public_key, executor_public_keys, anchor_json, roots_json) {
+    let deferred7_0;
+    let deferred7_1;
+    try {
+        const ptr0 = passStringToWasm0(bundle_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(gate_public_key, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(executor_public_keys, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passStringToWasm0(anchor_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len3 = WASM_VECTOR_LEN;
+        const ptr4 = passStringToWasm0(roots_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len4 = WASM_VECTOR_LEN;
+        const ret = wasm.verify_bundle_anchored(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4);
+        var ptr6 = ret[0];
+        var len6 = ret[1];
+        if (ret[3]) {
+            ptr6 = 0; len6 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred7_0 = ptr6;
+        deferred7_1 = len6;
+        return getStringFromWasm0(ptr6, len6);
+    } finally {
+        wasm.__wbindgen_free(deferred7_0, deferred7_1, 1);
     }
 }
 

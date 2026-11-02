@@ -67,15 +67,19 @@ the PR's evidence from the check without any Tempus install.
 
 ## 0.8 — Anchor
 
-- `tempus anchor`: checkpoints anchored to an external, append-only medium with
-  pluggable backends (the `chain` module of the archived Decision-Database becomes the
-  first one), so a deleted or rolled-back gate database is detectable from outside.
-- Policy rules in `jsonlogic-fast` with signed rule bundles; the dev allow-all policy
-  stays an explicit opt-in.
-- Mandatory money ceilings for `finance.*` policies; payment executor safe by default.
+- `tempus anchor`: a signed checkpoint proved to Rekor and an RFC 3161 timestamp authority, verified
+  offline against roots the reader pins, in the CLI and the browser verifier. An EVM backend is out:
+  the archived Decision-Database had nothing reusable, and a third backend adds little to these two.
+- `verify-bundle --require-anchor` and `--anchored-before`.
+- Policy rules in `jsonlogic-fast`, signed with the policy and re-executed by every verifier; the
+  dev allow-all policy stays an explicit opt-in.
+- Per-currency decimals (`currency_exponents`), which close the JPY and KWD warning.
 
-Exit criteria: a verifier holding only the gate public key and an anchor reference can
-tell whether the exported stream is the one the gate committed to.
+Exit criteria: an auditor confirms from the verifier that a checkpoint existed on a date, without
+trusting the operator or Tempus.
+
+Moved out of 0.8, with no release assigned yet: mandatory money ceilings for `finance.*` policies
+and a payment executor that is safe by default.
 
 ## 0.9 — Console
 

@@ -426,6 +426,7 @@ def test_bundle_with_checkpoint_verifies_ledger_inclusion(worlds, tmp_path):
         "authorization": "VERIFIED",
         "execution": "VERIFIED",
         "checkpoint": "VERIFIED",
+        "anchor": "NOT_PRESENT",
     }
     # Refuses to clobber existing evidence unless --force.
     code, _, err, _ = _export(real, "chk.bundle.json")
