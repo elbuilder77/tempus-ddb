@@ -8,6 +8,10 @@ const fileInput = document.querySelector('#evidence-file');
 const evidenceText = document.querySelector('#evidence-text');
 const keyInput = document.querySelector('#gate-key');
 const executorInput = document.querySelector('#executor-keys');
+const anchorFileInput = document.querySelector('#anchor-file');
+const anchorTextInput = document.querySelector('#anchor-text');
+const rekorKeysInput = document.querySelector('#rekor-keys');
+const tsaRootsInput = document.querySelector('#tsa-roots');
 const verifyButton = document.querySelector('#verify-button');
 const sampleButton = document.querySelector('#load-sample');
 const tamperedButton = document.querySelector('#load-tampered');
@@ -26,12 +30,22 @@ const CHECK_TITLES = {
   authorization: ['Permit', 'The gate signed this exact permit (intent hash, decision, policy digest, expiry) with the pinned key, and the agent signed the intent.'],
   execution: ['Outcome', 'The gate signed this exact outcome receipt with the pinned key, bound to the permit, and the executor signed the outcome.'],
   checkpoint: ['Ledger inclusion', 'A gate-signed checkpoint covers an event stream that contains this permit and outcome, with no gaps or rollback.'],
+  anchor: ['Checkpoint date', 'Proofs from outside the gate, checked against the roots you pinned, date this checkpoint. Neither the operator nor Tempus could have backdated it.'],
 };
+const CHECK_DETAILS = {
+  anchor: {
+    NOT_PRESENT: 'No anchor was loaded, so every date in this file is the gate’s own claim.',
+    NOT_CHECKED: 'The anchor is about this checkpoint, but nothing you pinned says who signed its proofs, so it claims no date.',
+    FAILED: 'At least one proof in the anchor does not verify, however good the others are.',
+  },
+};
+const BACKEND_TITLES = { rekor: 'Rekor log', rfc3161: 'Timestamp authority' };
 const CHECK_STATES = {
   VERIFIED: ['pass', '✓', 'PASS'],
   FAILED: ['fail', '×', 'FAIL'],
   INVALID: ['fail', '×', 'FAIL'],
   NOT_PRESENT: ['neutral', '–', 'NOT PRESENT'],
+  NOT_CHECKED: ['warn', '!', 'NOT CHECKED'],
 };
 const NOT_CHECKED = {
   AGENT_REGISTRATION_AT_ISSUE: 'Whether the agent was registered and active when the permit was issued. The gate attests it with its signature; this page does not re-check the registry.',
@@ -39,6 +53,9 @@ const NOT_CHECKED = {
   EXECUTOR_IDENTITY: 'Which executor carried out the action. The gate attests it; pin the executor public key above to check it here.',
   LEDGER_INCLUSION: 'That these events are in the gate’s signed ledger. This file carries no checkpoint, so inclusion is not shown.',
   COMPLETENESS: 'That nothing else happened: other actions, retries or outcomes. No single file can show that; compare against the ledger or a checkpoint.',
+  CHECKPOINT_TIME: 'When this checkpoint was made. Without a verified anchor, every date in this file is the gate’s own claim.',
+  ANCHOR_NOT_PINNED: 'A proof in the anchor was not checked. Pin its log key or authority root above to check it.',
+  TSA_REVOCATION: 'Whether the timestamp certificates were later revoked. That takes a network, and this page stays offline.',
 };
 const ERROR_TEXT = {
   AUTHORIZATION_ID_MISMATCH: 'The permit’s content no longer matches its own identifier: a signed field was edited after signing.',
@@ -60,6 +77,24 @@ const ERROR_TEXT = {
   POLICY_SIGNATURE_INVALID: 'The policy bundle’s gate signature does not verify.',
   DUPLICATE_JSON_KEY: 'The file repeats a JSON key, so different readers would see different values. Refused.',
   NON_EXACT_NUMBER: 'The file holds a number that is not an exact integer, so its hash is ambiguous. Refused.',
+  AUTHORIZATION_POLICY_DECISION_MISMATCH: 'Running the signed policy again, rules included, gives a different decision from the one on the permit.',
+  AUTHORIZATION_DECISION_NOT_REPRODUCIBLE: 'The decision on the permit cannot be reproduced from its intent and its signed policy.',
+  AUTHORIZATION_REASON_CODES_NOT_REPRODUCIBLE: 'The reasons on the permit cannot be reproduced from its intent and its signed policy.',
+  ANCHOR_NO_CHECKPOINT: 'An anchor dates a checkpoint, and this bundle holds none.',
+  ANCHOR_CHECKPOINT_MISMATCH: 'The anchor names a different checkpoint from the one in this bundle.',
+  ANCHOR_BEFORE_CHECKPOINT: 'A proof is dated before the checkpoint says it was created. One of the two dates is wrong.',
+  ANCHOR_REKOR_LOG_UNKNOWN: 'The proof comes from a log you did not pin.',
+  ANCHOR_REKOR_SET_INVALID: 'The log’s signature over the entry and its time does not verify: one of them was edited.',
+  ANCHOR_REKOR_ENTRY_MISMATCH: 'The logged entry is about something other than this checkpoint.',
+  ANCHOR_REKOR_INCLUSION_INVALID: 'The log’s proof that it holds this entry does not verify.',
+  ANCHOR_REKOR_NOTE_INVALID: 'The log’s signed tree head does not verify, or is about another tree.',
+  ANCHOR_TSA_TOKEN_MALFORMED: 'The timestamp token is not one this verifier can read.',
+  ANCHOR_TSA_IMPRINT_MISMATCH: 'The timestamp token is about another hash, not this checkpoint.',
+  ANCHOR_TSA_SIGNATURE_INVALID: 'The signature on the timestamp token does not verify.',
+  ANCHOR_TSA_ATTRIBUTES_INVALID: 'The signed attributes of the timestamp token are missing or do not match its content.',
+  ANCHOR_TSA_SIGNER_INVALID: 'The certificate that signed the token is not one allowed to sign timestamps.',
+  ANCHOR_TSA_CHAIN_INVALID: 'The token’s certificate does not lead to a root you pinned, or was not valid at the time it names.',
+  ANCHOR_TSA_ALGORITHM_UNSUPPORTED: 'The timestamp token uses an algorithm this verifier does not accept.',
 };
 
 let ready = false;
@@ -143,11 +178,16 @@ function detectKind(document) {
   }
 }
 
+function formatMicros(micros) {
+  return new Date(Math.floor(micros / 1000)).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
 function renderResult(result, evidence, kind) {
   const verdict = result.status;
   const phaseText = { AUTHORIZED: 'permit issued, no outcome in this file', COMPLETED: 'permit issued and outcome recorded', EXPIRED: 'permit expired without an outcome in this file', BLOCKED: 'the gate signed a denial' };
+  const dated = result.anchor?.status === 'VERIFIED' ? ` This checkpoint existed no later than ${formatMicros(result.anchor.anchored_at)}.` : '';
   const message = verdict === 'VERIFIED'
-    ? `Every signed document in this file checks out against the pinned gate key. Phase: ${result.phase} (${phaseText[result.phase] ?? result.phase}).`
+    ? `Every signed document in this file checks out against the pinned gate key. Phase: ${result.phase} (${phaseText[result.phase] ?? result.phase}).${dated}`
     : 'This file is not valid evidence. At least one signed document does not match, or the file was changed after signing.';
   setStatus(verdict, message);
 
@@ -161,13 +201,24 @@ function renderResult(result, evidence, kind) {
     row('Executor keys pinned', String(result.trust.executor_keys_pinned ?? 0)),
   );
   if (result.bundle_digest) summary.append(row('Bundle digest', result.bundle_digest));
+  if (dated) summary.append(row('Existed no later than', formatMicros(result.anchor.anchored_at)));
 
   checks.replaceChildren();
   for (const [name, [title, detail]] of Object.entries(CHECK_TITLES)) {
     const value = result.checks?.[name];
     if (value === undefined) continue;
     const [state, , label] = CHECK_STATES[value] ?? ['warn', '!', value];
-    checks.append(listItem(`${title} · ${label}`, value === 'NOT_PRESENT' ? `${title.toLowerCase()} is not in this file.` : detail, state));
+    const specific = CHECK_DETAILS[name]?.[value];
+    checks.append(listItem(`${title} · ${label}`, specific ?? (value === 'NOT_PRESENT' ? `${title.toLowerCase()} is not in this file.` : detail), state));
+  }
+  for (const proof of result.anchor?.proofs ?? []) {
+    const [state, , label] = CHECK_STATES[proof.status] ?? ['warn', '!', proof.status];
+    const proofDetail = proof.status === 'VERIFIED'
+      ? `Says the checkpoint existed no later than ${formatMicros(proof.anchored_at)}.`
+      : proof.status === 'NOT_CHECKED'
+        ? 'Nothing you pinned can check this proof.'
+        : `Does not verify: ${(proof.errors ?? []).join(', ')}.`;
+    checks.append(listItem(`${BACKEND_TITLES[proof.backend] ?? proof.backend} · ${label}`, proofDetail, state));
   }
   if (result.output_degraded === true) {
     checks.append(listItem('Executor output was degraded', 'The executor could not represent its full result; the receipt says so and the verifier reports it.', 'warn'));
@@ -183,7 +234,7 @@ function renderResult(result, evidence, kind) {
   notChecked.replaceChildren();
   for (const entry of result.trust?.not_checked ?? []) {
     const code = String(entry).split(' ')[0];
-    notChecked.append(listItem(code.replaceAll('_', ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase()), NOT_CHECKED[code] ?? String(entry), 'neutral'));
+    notChecked.append(listItem(code.replaceAll('_', ' ').toLowerCase().replace(/^tsa /, 'timestamp ').replace(/^\w/, (c) => c.toUpperCase()), NOT_CHECKED[code] ?? String(entry), 'neutral'));
   }
 
   renderLink(result, evidence, kind);
@@ -225,6 +276,19 @@ async function readEvidenceText() {
   return evidenceText.value;
 }
 
+async function readAnchorText() {
+  const file = anchorFileInput.files?.[0];
+  if (file) return file.text();
+  return anchorTextInput.value;
+}
+
+function trustRootsJson() {
+  const roots = {};
+  if (rekorKeysInput.value.trim()) roots.rekor_public_keys = [rekorKeysInput.value];
+  if (tsaRootsInput.value.trim()) roots.tsa_roots = [tsaRootsInput.value];
+  return JSON.stringify(roots);
+}
+
 async function runVerification(event) {
   event?.preventDefault();
   if (!ready) return;
@@ -239,8 +303,10 @@ async function runVerification(event) {
     let parsed;
     try { parsed = JSON.parse(text); } catch { parsed = null; }
     const kind = detectKind(parsed);
+    const anchor = (await readAnchorText()).trim();
+    if (anchor && kind !== 'bundle') throw new Error('An anchor dates the checkpoint in an evidence bundle. Load the bundle, not a single permit or trace.');
     const raw = kind === 'bundle'
-      ? verifier.verify_bundle(text, gate, JSON.stringify(executors))
+      ? verifier.verify_bundle_anchored(text, gate, JSON.stringify(executors), anchor, trustRootsJson())
       : verifier.verify_receipt(text, gate, JSON.stringify(executors));
     const result = JSON.parse(raw);
     renderResult(result, parsed, kind ?? result.kind);
@@ -255,16 +321,24 @@ async function runVerification(event) {
   }
 }
 
-async function loadSample(name) {
+async function loadSample(name, anchored = false) {
+  const sample = (file) => fetch(`data/evidence/${file}`).then((response) => { if (!response.ok) throw new Error(`Sample ${file} unavailable (${response.status}).`); return response.text(); });
   try {
-    const [bundle, key] = await Promise.all([
-      fetch(`data/evidence/${name}`).then((response) => { if (!response.ok) throw new Error(`Sample ${name} unavailable (${response.status}).`); return response.text(); }),
-      fetch('data/evidence/gate_public_key.txt').then((response) => { if (!response.ok) throw new Error('Sample key unavailable.'); return response.text(); }),
+    const [bundle, key, anchor, roots] = await Promise.all([
+      sample(name),
+      sample('gate_public_key.txt'),
+      anchored ? sample('anchor.json') : '',
+      anchored ? sample('anchor_roots.json') : '{}',
     ]);
     fileInput.value = '';
     evidenceText.value = bundle.trim();
     keyInput.value = key.trim();
     executorInput.value = '';
+    const pinned = JSON.parse(roots);
+    anchorFileInput.value = '';
+    anchorTextInput.value = anchor.trim();
+    rekorKeysInput.value = (pinned.rekor_public_keys ?? []).join('\n');
+    tsaRootsInput.value = (pinned.tsa_roots ?? []).join('\n');
     await runVerification();
   } catch (error) {
     setStatus('ERROR', String(error?.message ?? error));
@@ -284,10 +358,11 @@ function clearForm() {
 }
 
 form.addEventListener('submit', runVerification);
-sampleButton.addEventListener('click', () => loadSample('bundle.json'));
+sampleButton.addEventListener('click', () => loadSample('bundle.json', true));
 tamperedButton.addEventListener('click', () => loadSample('bundle_tampered_decision.json'));
 clearButton.addEventListener('click', clearForm);
 fileInput.addEventListener('change', () => { if (fileInput.files?.length) evidenceText.value = ''; });
+anchorFileInput.addEventListener('change', () => { if (anchorFileInput.files?.length) anchorTextInput.value = ''; });
 window.addEventListener('hashchange', () => { fragment = parseFragment(); describeFragment(); });
 
 function describeFragment() {
