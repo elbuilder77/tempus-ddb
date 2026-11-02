@@ -40,7 +40,7 @@ dev = [
     "pytest",
     "pytest-asyncio",
     "maturin",
-    "ruff==0.17.2",
+    "ruff==0.17.3",
     "bandit",
     "pip-audit",
     # The local log and timestamp authority that anchor tests and fixtures run against.
