@@ -345,7 +345,7 @@ def main() -> int:
             },
             "The limit in the rule edited after the gate signed the policy.",
         )
-        del rules_gate  # release the SQLite handle before the directory is removed
+        rules_gate = None  # release the SQLite handle before the directory is removed
 
         # --- anchors: the bundle's checkpoint, proved to a log and a timestamp authority ---
         authority = Authority()
