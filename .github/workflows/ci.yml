@@ -14,7 +14,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main, desarrollo]
+    branches: [main]
 
 jobs:
   rust:
