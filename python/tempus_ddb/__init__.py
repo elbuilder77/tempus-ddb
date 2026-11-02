@@ -17,6 +17,7 @@ Core Components:
 - gen_keys: Utility to generate Ed25519 key pairs.
 - verify_receipt / verify_bundle / verify_checkpoint: Independent verification with a pinned gate public key (no database).
 - bundle_digest: SHA-256 of a canonical bundle without its verify_url (what the link carries).
+- verify_anchor / anchor_checkpoint_digest / create_anchor: Proof from outside authorities that a checkpoint existed by a date.
 - main_sync: Entry point for the MCP server.
 
 Typical usage:
@@ -31,12 +32,15 @@ __version__ = "0.6.0"
 from ._tempus_ddb import (
     TempusDDB,
     TempusExecutor,
+    anchor_checkpoint_digest,
     bundle_digest,
     gen_keys,
+    verify_anchor,
     verify_bundle,
     verify_checkpoint,
     verify_receipt,
 )
+from .anchor import create_anchor
 from .executor_runtime import (
     ActionAdapter,
     AmbiguousTransportError,
@@ -58,6 +62,9 @@ __all__ = [
     "GitHubExecutorAdapter",
     "TempusDDB",
     "TempusExecutor",
+    "anchor_checkpoint_digest",
+    "create_anchor",
+    "verify_anchor",
     "UnknownExecutionError",
     "__version__",
     "bundle_digest",

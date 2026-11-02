@@ -43,6 +43,8 @@ dev = [
     "ruff==0.17.2",
     "bandit",
     "pip-audit",
+    # The local log and timestamp authority that anchor tests and fixtures run against.
+    "cryptography",
     # pip-audit scans these transitive copies. certifi before 2026.10.19 bundles
     # compromised roots. filelock 4.2.1 (the fix) needs Python 3.11; no 3.10-compatible
     # release has it, so CI acknowledges those two advisories on 3.10 only (see ci.yml).
