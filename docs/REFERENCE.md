@@ -602,7 +602,7 @@ tempus-payment-executor \
 
 ## `tempus guard`: the agent's side
 
-`tempus guard ...` is the Tempus Guard CLI ([Universal-Kernel-Ciel](https://github.com/tempus-protocol/Universal-Kernel-Ciel),
+`tempus guard ...` is the Tempus Guard CLI ([tempus-guard-cli](https://github.com/tempus-protocol/tempus-guard-cli),
 `pip install tempus-guard-cli`) reached through the core CLI; without it installed the command says so
 and exits 2. `tempus guard intent --branch agent/fix-123 --base origin/main --tenant-id acme
 --agent-keyfile agent.keys.json` reads the local branch, writes the git bundle and prints the

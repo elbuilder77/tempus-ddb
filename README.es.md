@@ -186,7 +186,7 @@ Los resultados de verificación son `tempus.trace-verification.v1` y
 - **Tempus Guard for GitHub** ([tempus-github-app](https://github.com/tempus-protocol/tempus-github-app)):
   ejecutor GitHub App que solo hace push con permiso y pondrá un check "Verificado por
   Tempus" en cada pull request, enlazando al verificador (0.7).
-- **Tempus Guard CLI** ([Universal-Kernel-Ciel](https://github.com/tempus-protocol/Universal-Kernel-Ciel), que pasará a llamarse `tempus-guard-cli`):
+- **Tempus Guard CLI** ([tempus-guard-cli](https://github.com/tempus-protocol/tempus-guard-cli)):
   el lado cliente de Guard; `tempus guard intent` firma la intención de push desde una rama local.
 - **Tempus Advance** ([Tempus-Advance](https://github.com/tempus-protocol/Tempus-Advance)):
   consola hospedada de solo lectura sobre los mismos contratos (0.9).
