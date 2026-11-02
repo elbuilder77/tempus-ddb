@@ -84,6 +84,7 @@ const ERROR_TEXT = {
   ANCHOR_CHECKPOINT_MISMATCH: 'The anchor names a different checkpoint from the one in this bundle.',
   ANCHOR_BEFORE_CHECKPOINT: 'A proof is dated before the checkpoint says it was created. One of the two dates is wrong.',
   ANCHOR_REKOR_LOG_UNKNOWN: 'The proof comes from a log you did not pin.',
+  ANCHOR_MALFORMED: 'The anchor file does not have the shape of a tempus.anchor.v1 document.',
   ANCHOR_REKOR_SET_INVALID: 'The log’s signature over the entry and its time does not verify: one of them was edited.',
   ANCHOR_REKOR_ENTRY_MISMATCH: 'The logged entry is about something other than this checkpoint.',
   ANCHOR_REKOR_INCLUSION_INVALID: 'The log’s proof that it holds this entry does not verify.',

@@ -96,6 +96,16 @@ callarlo. Un documento comprobado contra la misma base de la que salió se repor
 no independiente. Las reglas están en [SPEC.md](SPEC.md); los ataques considerados, en
 [THREAT_MODEL.md](THREAT_MODEL.md).
 
+Las fechas son lo que afirma el gate hasta que se anclan. `tempus anchor create` prueba el hash de
+un checkpoint ante un registro público y una autoridad de sellado de tiempo, y el verificador dice
+entonces "este checkpoint existía a más tardar" en una fecha, para quien fije sus raíces:
+
+```bash
+tempus verify-bundle --bundle evidence.json --gate-public-key <64 hex> \
+    --anchor evidence.anchor.json --rekor-public-key rekor.pub --tsa-root tsa-root.pem \
+    --require-anchor
+```
+
 ## Cómo funciona
 
 ```text
@@ -156,7 +166,7 @@ Hay ejecutores empaquetados para GitHub, webhooks HTTP, Slack y pagos: ver la
 
 ## El protocolo
 
-Quince contratos `.v1`, especificados en [SPEC.md](SPEC.md) con fixtures de conformidad
+Dieciséis contratos `.v1`, especificados en [SPEC.md](SPEC.md) con fixtures de conformidad
 en `conformance/evidence/` contra los que se prueban el verificador nativo y el del
 navegador. Estables en toda la línea `0.x` ([COMPATIBILITY.md](COMPATIBILITY.md)).
 
@@ -177,9 +187,10 @@ navegador. Estables en toda la línea `0.x` ([COMPATIBILITY.md](COMPATIBILITY.md
 | Evento del ledger | `tempus.event-stream-event.v1` | — (encadenado por hash) |
 | Checkpoint | `tempus.checkpoint.v1` | gate |
 | Bundle de evidencia | `tempus.evidence-bundle.v1` | — (contiene los anteriores) |
+| Anclaje | `tempus.anchor.v1` | — (cada prueba se autentica sola) |
 
-Los resultados de verificación son `tempus.trace-verification.v1` y
-`tempus.checkpoint-verification.v1`.
+Los resultados de verificación son `tempus.trace-verification.v1`,
+`tempus.checkpoint-verification.v1` y `tempus.anchor-verification.v1`.
 
 ## Construido sobre Tempus
 
@@ -198,9 +209,9 @@ Hitos: [ROADMAP.md](ROADMAP.md).
 
 Tempus detecta recibos, políticas, evidencias y trazas alteradas o falsificadas; rechaza
 actores no registrados o revocados; rechaza peticiones idempotentes en conflicto; e impide
-que dos resultados consuman un permiso. Todavía no impide el borrado de toda la base del
-gate sin un anclaje externo (0.8), ni el bypass de un agente que conserve una credencial
-del destino. Lee [THREAT_MODEL.md](THREAT_MODEL.md) antes de apoyarte en él para acciones
+que dos resultados consuman un permiso. No impide el borrado de toda la base del gate: un
+checkpoint anclado y guardado fuera del host permite detectarlo, hasta su fecha. Tampoco impide el
+bypass de un agente que conserve una credencial del destino. Lee [THREAT_MODEL.md](THREAT_MODEL.md) antes de apoyarte en él para acciones
 de alto impacto, y [SECURITY.md](SECURITY.md) para reportar una vulnerabilidad.
 
 ## Desarrollo

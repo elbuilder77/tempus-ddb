@@ -207,6 +207,51 @@ The same template ships as `config/policy.github.example.json` in the source tre
 `REPLACE_WITH_EXECUTOR_ED25519_PUBLIC_KEY` placeholder that you must replace;
 `install-policy` refuses a file that still contains a `REPLACE_WITH_` placeholder.
 
+### Decimals per currency
+
+An amount is read in the decimals of its currency. A currency the policy does not name has two;
+for any other, say how many it has:
+
+```json
+"allowed_currencies": ["USD", "JPY", "KWD"],
+"currency_exponents": {"JPY": 0, "KWD": 3},
+"max_money_amount_minor": 50000
+```
+
+`"500"` JPY is then 500 minor units and `"1.234"` KWD is 1234. `max_money_amount_minor` and rules
+see those units, per currency, and `"5.5"` JPY is an error, not a denial. `install-policy` refuses
+a list naming a currency that ISO 4217 does not give two decimals (JPY, KRW, CLP, KWD, BHD and so
+on) with no exponent for it. Set `{"JPY": 2}` to keep reading it in hundredths on purpose. Policies
+already installed are read as they always were. A policy with no `allowed_currencies` accepts any
+code, and one it does not name is read in hundredths, so list the currencies you take.
+
+### Rules
+
+`constraints` covers the common limits. `rules` covers conditions across fields, in a strict typed
+subset of JsonLogic, signed with the policy and run again by every verifier, in the browser too:
+
+```json
+"rules": [
+  {"id": "large-needs-a-review-ticket",
+   "logic": {"if": [{"!": {"missing": ["money"]}},
+                    {"or": [{"<=": [{"var": "money.amount_minor"}, 50000]},
+                            {"!!": {"var": "intent.input.review_ticket"}}]},
+                    true]}}
+]
+```
+
+A rule sees `intent` (the signed intent), `ttl_seconds` and `money` (`amount_minor` and `currency`,
+absent when the intent has none). Each must evaluate to exactly `true`. A false rule blocks with
+`POLICY_RULES_DENIED`. A value of the wrong type, read on a branch the rule reaches, blocks with
+`POLICY_RULES_ERROR`. The second usually means a rule that needs a guard, such as the `missing`
+above.
+
+Only `and or if ! !! === !== < <= > >= in missing var + - * min max` exist, on integers and strings.
+Floats and JavaScript coercion are refused: `{"<": ["10", 9]}` does not install, and `1 == "1"`
+has no way to be written. A bad rule fails at install with `TEMPUS_POLICY_RULES_INVALID`. A receipt
+says that a rule denied, not which one. The full grammar and limits are in
+[SPEC.md](https://github.com/tempus-protocol/tempus-ddb/blob/main/SPEC.md).
+
 ### Local development only: `--allow-all-dev`
 
 To try the flow without writing a policy, opt in explicitly. This installs a signed
@@ -323,6 +368,9 @@ tempus checkpoint export --tenant-id acme --from-seq 1 --out stream-acme.json
 tempus checkpoint verify --checkpoint checkpoint-acme.json --stream stream-acme.json \
     --gate-public-key <gate-public-key-hex|file>
 ```
+
+To prove when a checkpoint existed, anchor it with `tempus anchor create` (see
+[Anchoring](#anchoring-proof-from-outside-of-when-a-checkpoint-existed)).
 
 See [docs/BACKUP_AND_DISASTER_RECOVERY.md](https://github.com/tempus-protocol/tempus-ddb/blob/main/docs/BACKUP_AND_DISASTER_RECOVERY.md) for complete disaster recovery, hot backup, and reconciliation procedures.
 
@@ -583,11 +631,10 @@ tempus-payment-executor \
   --secret-key "sk_live_<isolated-payment-key>"
 ```
 
-- **Minor units assume two decimals.** `amount_minor` and the `max_money_amount_minor` limit
-  are read as hundredths (`"25.5"` is `2550`) for every currency. That is wrong for zero-
-  decimal currencies (JPY: `"500"` means 500 yen, but the limit sees 50 000 minor units) and
-  for three-decimal ones (BHD, KWD). Express limits per currency with that in mind, or keep
-  such currencies out of `allowed_currencies`.
+- **Minor units follow the policy.** The executor reads amounts with the `currency_exponents` of
+  the signed policy, as the gate does, so a currency has the decimals the policy gives it and two
+  otherwise. It sends `amount` as written, and spells an `amount_minor`-only intent in that
+  currency's decimals (`500` JPY as `"500"`, `1234` KWD as `"1.234"`). See "Decimals per currency".
 - `money.beneficiary` must be a non-empty string; it is paid exactly as written.
 - An ambiguous payment-transport outcome is recorded as `UNKNOWN`. A definitive
   provider or validation error is `FAILED`. The transport must raise the real
@@ -646,6 +693,8 @@ python examples/benchmark.py --records 1000 --json
 | Executor state observation | `tempus.executor-observation.v1` |
 | Complete trace | `tempus.action-trace.v1` |
 | Verification result | `tempus.trace-verification.v1` |
+| Anchor | `tempus.anchor.v1` |
+| Anchor verification result | `tempus.anchor-verification.v1` |
 
 Authorization decisions are `ALLOWED` or `BLOCKED`. Execution outcomes are `SUCCEEDED`
 or `FAILED`. Executor observations are `STARTED`, `SUCCEEDED`, `FAILED`, or `UNKNOWN`.
@@ -768,6 +817,46 @@ and, with a checkpoint, checks that the permit and outcome events are in the sig
 Same exit codes as above (0 VERIFIED, 2 INVALID, 1 usage). Python:
 `TempusDDB.export_bundle(id)` and `verify_bundle(json, gate_pub, executor_pubs=None)`.
 
+### Anchoring: proof from outside of when a checkpoint existed
+
+Every date the gate writes is its own claim. An anchor (`tempus.anchor.v1`) is proof from a public
+log and a timestamp authority that a checkpoint already existed, so an auditor who pins their
+roots can confirm a date without trusting the operator or Tempus.
+
+```bash
+# Operator: from a checkpoint or a bundle holding one. Run it from cron; the gate stays offline.
+tempus anchor create --checkpoint evidence.json --out evidence.anchor.json
+
+# Auditor: the anchor against its checkpoint, with roots obtained from the log and the authority
+tempus anchor verify --anchor evidence.anchor.json --checkpoint evidence.json \
+    --rekor-public-key rekor.pub --tsa-root digicert-root.pem
+
+# Auditor: the whole bundle, and a date it must meet
+tempus verify-bundle --bundle evidence.json --gate-public-key <64-hex|file> \
+    --anchor evidence.anchor.json --rekor-public-key rekor.pub --tsa-root digicert-root.pem \
+    --require-anchor --anchored-before 2026-12-31
+```
+
+- **What leaves the machine:** only a hash of the signed checkpoint. The public log entry is
+  signed by a key that exists for that one entry, so it says nothing about the tenant and cannot
+  be linked to the gate.
+- **Backends:** Rekor (`https://rekor.sigstore.dev`, or `--rekor-url`) and RFC 3161 (DigiCert by
+  default; `--tsa-url` or `TEMPUS_TSA_URL`). Both are asked by default because they fail
+  independently; narrow it with `--backend`. A Rekor entry is public and permanent.
+- **Retrying:** `anchor create` checks each proof before keeping it and merges into an existing
+  `--out` for the same checkpoint. A backend that fails leaves the other's proof written and exits
+  non-zero, so the next cron run only fills the gap.
+- **Roots are yours to pin.** With none, the anchor reads `NOT_CHECKED` and claims no date.
+  `--require-anchor` then fails. One failed proof makes the verdict `INVALID`, however good the
+  others are.
+- **What it does not show:** that the checkpoint covers everything, or that no later checkpoint
+  exists. Revocation of the timestamp certificates cannot be checked offline, and the verifier
+  lists that under `trust.not_checked` (`TSA_REVOCATION`).
+
+The browser verifier reads anchors too. Exit codes for `anchor verify`: 0 `VERIFIED`, 2 any other
+result, 1 when the inputs cannot be read. Python: `create_anchor(checkpoint_text)`, `verify_anchor(anchor_json, checkpoint_json,
+roots_json)` and `verify_bundle(..., anchor_json=..., anchor_roots_json=...)`.
+
 ### What VERIFIED means, and how strict it is
 
 - A document that repeats a JSON object key anywhere is refused with `DUPLICATE_JSON_KEY`.
@@ -862,6 +951,7 @@ Upgrading from 0.5.3, these also break:
 | What you send | Result | Fix |
 | --- | --- | --- |
 | A currency pattern or wildcard in `allowed_currencies` | `TEMPUS_POLICY_INVALID`: entries must be exact currency codes. A stored dev allow-all policy with a non-exact list fails the same way and the gate does not rewrite it | Exact codes (`USD`), or omit the list. Replace a stored dev allow-all policy by running `tempus install-policy --allow-all-dev` (or `TempusDDB.install_allow_all_dev_policy()`). Any other such policy is rejected until you install a valid one. |
+| `allowed_currencies` naming JPY, KWD or another currency without two decimals, on a new install (0.8) | `TEMPUS_POLICY_INVALID`: the policy has to say how many decimals it has. Stored policies keep working | `"currency_exponents": {"JPY": 0}`, or `{"JPY": 2}` to keep reading it in hundredths |
 | A lowercase currency code | Refused: `money.currency` / `money.asset` must be an exact 3-letter code, and the same rule applies to `allowed_currencies` | An uppercase exact code (`USD`) |
 | A payment action (`finance.disburse`, `finance.transfer`, `payment.charge`) with no `money`, null money, or amount 0 | `TEMPUS_INVALID_CONTRACT` (a money object, or a non-zero amount). Nothing is signed | A `money` object whose amount is greater than zero |
 | JSON with a repeated object key | `DUPLICATE_JSON_KEY` from the gate (`parse_canonical`), the Rust executor and the Python runtime | Emit each object key once |
@@ -888,7 +978,8 @@ before using Tempus for high-impact production actions.
 
 0.6 "Evidence" puts the verifier in front: a public browser verifier, `verify_url` in
 every receipt and bundle, and the protocol specification with conformance fixtures.
-Next: 0.7 Guard (Tempus Guard for GitHub), 0.8 Anchor, 0.9 Console, 1.0 GA. See
+0.7 Guard adds Tempus Guard for GitHub, and 0.8 Anchor adds anchors, policy rules and
+per-currency decimals. Next: 0.9 Console, 1.0 GA. See
 [ROADMAP.md](https://github.com/tempus-protocol/tempus-ddb/blob/main/ROADMAP.md).
 
 ## Development

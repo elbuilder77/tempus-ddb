@@ -99,6 +99,22 @@ aws s3 cp /tmp/event-stream-acme.json s3://acme-tempus-audit-checkpoints/$(date 
 
 ---
 
+### Step 3: Anchor the checkpoint
+
+A checkpoint's date is the gate's own claim. Prove it from outside, from cron, after each one:
+
+```bash
+tempus anchor create --checkpoint /tmp/checkpoint-acme-latest.json \
+  --out /tmp/checkpoint-acme-latest.anchor.json
+aws s3 cp /tmp/checkpoint-acme-latest.anchor.json s3://acme-tempus-audit-checkpoints/$(date +%Y%m%d)/
+```
+
+Only a hash leaves the machine. A backend that fails exits non-zero and leaves the other's proof
+written, so re-running the same command fills the gap. The anchor holds no events, so keep the
+checkpoint and the stream with it: a Rekor entry by itself cannot restore anything.
+
+---
+
 ## 4. Restore & Reconciliation Procedure
 
 When restoring a database following hardware failure or disaster recovery:
@@ -128,6 +144,15 @@ When restoring a database following hardware failure or disaster recovery:
    - **Hash Chain Linkage:** Verifies `prev_event_hash` linkage across all stream items (`ERR_CHAIN_LINKAGE_BROKEN`).
    - **Rollback Prevention:** Detects truncated or truncated stream (`ERR_ROLLBACK_DETECTED`).
    - **Root Hash Conformance:** Detects any payload tampering (`ERR_EVENT_TAMPERED` / `ERR_ROOT_HASH_MISMATCH`).
+
+   If the checkpoint is anchored, confirm its date against the log and authority roots you pinned.
+   A snapshot older than the newest anchored checkpoint is a rollback:
+   ```bash
+   tempus anchor verify \
+     --anchor /path/to/checkpoint-acme-latest.anchor.json \
+     --checkpoint /path/to/checkpoint-acme-latest.json \
+     --rekor-public-key rekor.pub --tsa-root digicert-root.pem
+   ```
 
 4. **Verify Active Actor Registrations & Unconsumed Permits:**
    ```bash

@@ -149,6 +149,7 @@ sets the bound with `--anchored-before`.
 | `anchored_at` | Microseconds. The earliest verified proof's time; `null` unless `VERIFIED` |
 | `proofs[]` | `{backend, status, anchored_at, errors}` per proof; `status` is `VERIFIED`, `NOT_CHECKED` or `FAILED` |
 | `errors` | Document and proof errors together; empty unless `INVALID` |
+| `not_checked` | What the result leaves open, in the form of `trust.not_checked` |
 
 `verify_bundle` with an anchor adds to `tempus.trace-verification.v1`:
 
@@ -221,8 +222,11 @@ What a rule sees, nothing else, so a verifier can reproduce it:
 
 ```json
 {"intent": <the signed intent>, "ttl_seconds": 300,
- "money": {"amount_minor": 2500, "currency": "USD"} | null}
+ "money": {"amount_minor": 2500, "currency": "USD"}}
 ```
+
+`money` is absent when the intent has none, because `missing` asks whether a key is there and a
+key holding null is there.
 
 A rule must evaluate to exactly `true`. `false` adds `POLICY_RULES_DENIED`; any failure adds
 `POLICY_RULES_ERROR`. Either way the decision is `BLOCKED`. Because the logic lives in
@@ -240,7 +244,7 @@ Bool := true | false | Var
       | {"!": Test} | {"!!": Test}
       | {"===": [Term, Term]} | {"!==": [Term, Term]}
       | {"<": [Num, Num]} | {"<=": [Num, Num]} | {">": [Num, Num]} | {">=": [Num, Num]}
-      | {"in": [Str, Str | [Str, ...] | Var]}
+      | {"in": [Str, Str | [string, ...] | Var]}
 Test := Bool | Var | {"missing": ["path", ...]}
 Num  := integer | Var | {"+": [Num, Num]} | {"-": [Num, Num]} | {"*": [Num, Num]}
       | {"min": [Num, ...]} | {"max": [Num, ...]}
@@ -249,8 +253,11 @@ Term := integer | string | true | false | null | Var | {"+"...} | {"-"...} | {"*
 Var  := {"var": "path"} | {"var": ["path", integer | string | true | false | null]}
 ```
 
-`==`, `!=`, `/`, `%`, `substr`, `cat`, `map`, `filter`, `reduce`, `all`, `some`, `none`, `merge`,
-`missing_some` and `log` are refused at install. Integer literals and every value read as a
+A list in `in` holds literal strings only: JsonLogic does not evaluate inside a literal list, so a
+`var` there would be compared as an object and never match. A path must sit under `intent`,
+`ttl_seconds` or `money`, which catches a typo at install. `==`, `!=`, `/`, `%`, `substr`, `cat`,
+`map`, `filter`, `reduce`, `all`, `some`, `none`, `merge`, `missing_some` and `log` are refused at
+install. Integer literals and every value read as a
 number must be exact and within ±(2^53 − 1). Arithmetic is binary so that each step can be
 checked: IEEE addition and multiplication round correctly, so a result inside that range is
 exact, and one outside it is an error.
@@ -258,7 +265,10 @@ exact, and one outside it is an error.
 The checker follows the same short-circuits as the evaluator and only checks what is reached,
 so `{"if": [{"!": {"missing": ["money"]}}, {"<=": [{"var": "money.amount_minor"}, 100]}, true]}`
 works without money. It computes nothing itself. Every value comes from `jsonlogic-fast`, so
-there remains one policy evaluator.
+there remains one policy evaluator. The evaluator parses its context for every node it is asked
+about, so each rule gets only the paths it names, and an input of megabytes it never reads costs
+nothing. A verifier also reaches this with a bundle it has already refused, so a rule outside the
+grammar never reaches the evaluator, whoever signed it.
 
 Dependency: `jsonlogic-fast = "0.1.7"`, the published version. Its `evaluate` is all this needs,
 and 0.2.0 is not on crates.io.
@@ -314,8 +324,9 @@ reading declares `{"JPY": 2}`. The contrib payment executor mirrors the same rea
 - **Test authority:** `scripts/anchor_test_authority.py` is a local fake log and TSA. It produces
   the conformance fixtures (`conformance/evidence/anchor*.json`) and serves the CLI's end-to-end
   tests over localhost.
-- **Hostile input:** mutation of real tokens and entries (never panics, never `VERIFIED`), wrong
-  key, wrong root, wrong digest, time before the checkpoint, unknown fields, expired certificate,
+- **Hostile input:** mutation of real tokens and entries (never panics, and never changes what is
+  proved: bytes outside the signed content, such as the SignedData version, may flip harmlessly),
+  wrong key, wrong root, wrong digest, time before the checkpoint, unknown fields, expired certificate,
   non-TSA signer, unknown critical extension, RSA with a short modulus.
 - **Parity:** every conformance case runs on the native and WASM verifiers.
 - **Rules:** a table of accepted and refused grammar, coercion attempts, overflow, short-circuits,

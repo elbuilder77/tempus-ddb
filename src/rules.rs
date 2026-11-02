@@ -516,6 +516,28 @@ mod tests {
         assert!(error.starts_with("TEMPUS_POLICY_RULES_INVALID"), "{error}");
     }
 
+    /// The example in docs/REFERENCE.md: a guard on `money`, then a limit a ticket lifts.
+    #[test]
+    fn the_rule_the_reference_shows_means_what_it_says() {
+        let logic = json!({"if": [{"!": {"missing": ["money"]}},
+                                  {"or": [{"<=": [{"var": "money.amount_minor"}, 50000]},
+                                          {"!!": {"var": "intent.input.review_ticket"}}]},
+                                  true]});
+        let rule = rules(logic);
+        validate(&rule).unwrap();
+        let no_money = json!({"intent": {"input": {}}, "ttl_seconds": 300});
+        let small = json!({"intent": {"input": {}}, "ttl_seconds": 300,
+                           "money": {"amount_minor": 50000, "currency": "USD"}});
+        let large = json!({"intent": {"input": {}}, "ttl_seconds": 300,
+                           "money": {"amount_minor": 50001, "currency": "USD"}});
+        let ticket = json!({"intent": {"input": {"review_ticket": "T-1"}}, "ttl_seconds": 300,
+                            "money": {"amount_minor": 50001, "currency": "USD"}});
+        assert_eq!(evaluate(&rule, &no_money), Vec::<&str>::new());
+        assert_eq!(evaluate(&rule, &small), Vec::<&str>::new());
+        assert_eq!(evaluate(&rule, &large), vec![RULES_DENIED]);
+        assert_eq!(evaluate(&rule, &ticket), Vec::<&str>::new());
+    }
+
     #[test]
     fn the_grammar_accepts_what_it_says() {
         passes(json!(true));

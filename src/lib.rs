@@ -13,12 +13,15 @@
 //!
 //! - [`verify_receipt`], [`verify_bundle`] and [`verify_checkpoint`]: independent
 //!   verification of exported evidence against a pinned gate public key, with no database.
+//! - [`verify_anchor`] and [`verify_bundle_anchored`]: proof from a public log or a timestamp
+//!   authority that a checkpoint existed by a date, checked offline against roots you pin.
 //! - [`generate_keypair`]: Ed25519 key generation in the key-file format the CLI reads.
 //! - [`SqliteStorage`]: the gate itself (identities, signed policies, permits, receipts,
 //!   event stream and checkpoints) on SQLite.
 //!
 //! On `wasm32` the crate compiles only the verifier and exposes it to JavaScript
-//! (`verify_bundle`, `verify_receipt`, `verify_checkpoint`, `bundle_digest`); that build
+//! (`verify_bundle`, `verify_bundle_anchored`, `verify_anchor`, `verify_receipt`,
+//! `verify_checkpoint`, `bundle_digest`); that build
 //! is the public browser verifier at <https://tempus-protocol.github.io/tempus-ddb/verify.html>.
 //!
 //! Signed JSON documents are parsed strictly: duplicate object keys are refused, and

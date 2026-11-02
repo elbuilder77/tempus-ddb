@@ -111,6 +111,27 @@ The gate key path is server-controlled through `TEMPUS_GATE_KEYFILE`; an MCP cli
 cannot select a different gate key per authorization request. The default B2A MCP tools
 accept locally signed intent and outcome payloads, not private-key file paths.
 
+### External anchoring
+
+`tempus anchor` proves a signed checkpoint's hash to a public log (Rekor) and a timestamp authority
+(RFC 3161). The proofs are verified offline, against roots the reader pins, so an auditor needs
+neither the operator nor Tempus, and a later outage of either service does not matter.
+
+- The gate never calls out. The operator anchors from the CLI or cron.
+- Only the hash leaves the machine. The log entry is signed by a throwaway key, so a public entry
+  says nothing about the tenant and cannot be linked to the gate.
+- A proof with no pinned root is `NOT_CHECKED`, never `VERIFIED`. One failed proof makes the verdict
+  `INVALID`.
+- The date an anchor proves is an upper bound on when the checkpoint existed, and nothing more.
+
+### Policy rules
+
+Rules are data, in a closed typed subset of JsonLogic checked when a policy is read. A verifier
+re-executes them, so a gate cannot sign an `ALLOWED` its own rule denies without a verifier finding
+it. A rule's work is bounded by 32 rules, 256 nodes and 16 levels, and it reads only the fields it
+names. A policy that reads a very large input field on every node is an operator's own cost, within
+`max_input_bytes`.
+
 ## Threats and residual risk
 
 | Threat | Current control | Residual risk / required production control |
@@ -118,13 +139,14 @@ accept locally signed intent and outcome payloads, not private-key file paths.
 | Agent bypasses Tempus | GitHub credential is held by the packaged mediated executor | Deployment is bypassable if the same token is also exposed to the requesting agent. |
 | Agent forges identity | Ed25519 signature, signed registration, tenant scope, rotation, and revocation | A stolen active key can impersonate that agent until revocation reaches every executor. Production identities should use the Vault/workload signer path. |
 | Client self-registers | Registration requires a delegation-capable signer in the same tenant scope; admin MCP tools are disabled | Protect the separate provisioning process and delegation root. |
-| Gate forges permits | Gate receipts identify the signer URI/key version and are signed locally or through Vault Transit | The gate remains a trust root. Add key transparency, replicated audit, and external checkpoints. |
+| Gate forges permits | Gate receipts identify the signer URI/key version and are signed locally or through Vault Transit | The gate remains a trust root. A verifier reproduces the decision, rules included, from the signed policy, so a false decision over an honest policy is caught. A gate that signs a false policy is not. Add key transparency and replicated audit. |
 | Replay or duplicate action | Gate idempotency plus atomic executor-side consumption | Multi-instance executors require shared transactional consumption state. |
 | Ambiguous GitHub result | Signed `UNKNOWN` observation and no automatic retry | An operator must reconcile the external GitHub state before deciding on a new action. |
 | Two conflicting outcomes | Unique authorization consumption | Distributed executors require transactional shared state or a consensus-backed permit store. |
 | Receipt modification | Canonical hashes and Ed25519 signatures | Metadata confidentiality is not provided; values are stored as plaintext JSON. |
-| Tail deletion or full database loss | None in local-only mode | Replicate append-only events and publish signed/Merkle checkpoints outside the host. |
-| Database rollback | Signatures preserve integrity of the restored snapshot | A valid older snapshot is not distinguishable locally. External monotonic checkpoints are required. |
+| Tail deletion or full database loss | An anchored checkpoint, retained outside the host, shows what the gate had committed to by its date | Deletion is detected, not prevented, and only up to the last anchored checkpoint. An anchor holds only a hash, so retain the checkpoint and its stream too. |
+| Database rollback | Signatures preserve integrity of the restored snapshot; a retained anchored checkpoint newer than the snapshot exposes the rollback | A valid older snapshot is not distinguishable locally, and an anchor cannot show that no later checkpoint exists. Someone has to keep the newest one. |
+| Backdated checkpoint | An anchor dates the checkpoint from outside, against roots the reader pins | The operator chooses when to anchor, so the date is only an upper bound. Trust moves to the log and the authority: a colluding log and authority, or a compromised root, could forge a date. Revocation of timestamp certificates is not checked offline (`TSA_REVOCATION`). |
 | Malicious or altered policy | Gate-controlled policy bundles are signed and embedded by digest; evidence is reproduced by the executor | A compromised delegation root can install a malicious policy. Separate provisioning authority and monitor policy events. |
 | Key file theft | Plaintext files are development-only; gate and executor accept a Vault Transit signer config with no private key | Vault workload authentication and policy remain operator responsibilities. |
 | MCP path misuse | MCP tools accept only signed payloads; no tool takes a key-file path | Admin and destructive tools stay behind their flags and run in a separate process from the agent-facing server. |
@@ -156,8 +178,8 @@ a separately protected provisioning process. Gate 5 remains Phase 4 work.
    producing an effect.
 3. Gate, agent, and executor keys use workload identity or KMS/HSM-backed signing.
 4. Agent revocation and key rotation are signed, tenant-scoped, and tested.
-5. Action receipts are replicated and externally checkpointed to detect truncation and
-   rollback.
+5. Action receipts are replicated, and checkpoints are anchored and retained outside the host, to
+   detect truncation and rollback.
 6. Policies are signed, versioned, deterministic, and controlled by the gate rather than
    by the requesting agent.
 7. Concurrency, recovery, denial-of-service, and cross-process replay tests pass.
@@ -169,9 +191,9 @@ a separately protected provisioning process. Gate 5 remains Phase 4 work.
 - Custody or movement of funds.
 - Bilateral negotiation and arbitration.
 - Human approval workflows.
-- Cloud synchronization and external anchoring.
+- Cloud synchronization.
 - A read-only web audit console.
 - Arbitrary policy languages beyond the deterministic tenant, resource, action, input,
-  money, TTL, and executor constraints in `tempus.policy-bundle.v1`.
+  money, TTL, and executor constraints in `tempus.policy-bundle.v1` and its typed `rules`.
 
 These are roadmap items, not current security claims.
