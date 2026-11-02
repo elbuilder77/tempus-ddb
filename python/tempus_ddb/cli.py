@@ -1031,7 +1031,7 @@ def run_guard(args):
     except ImportError:
         print(
             "[ERROR] `tempus guard` needs the Tempus Guard CLI: pip install tempus-guard-cli "
-            "(https://github.com/tempus-protocol/Universal-Kernel-Ciel)",
+            "(https://github.com/tempus-protocol/tempus-guard-cli)",
             file=sys.stderr,
         )
         sys.exit(2)
