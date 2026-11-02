@@ -73,7 +73,7 @@ jobs:
       # The CLI version must match the wasm-bindgen crate pinned in Cargo.lock;
       # the build script checks and fails early otherwise.
       - name: Install wasm-bindgen-cli
-        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
+        run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
 
       - name: Build the browser verifier
         run: bash scripts/build_wasm_verifier.sh
