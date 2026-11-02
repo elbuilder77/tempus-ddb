@@ -28,11 +28,9 @@ python -m pip install -e ".[dev]"
 
 ## Branches
 
-- `main` holds released code. Every change reaches it through a pull request; the
-  repository accepts squash merges only.
-- `desarrollo` is the integration branch for the next release. Open feature and fix
-  pull requests against it. A release is one pull request from `desarrollo` to `main`,
-  after which `desarrollo` is reset to `main` so the two branches do not diverge.
+- `main` is the only long-lived branch. Every change reaches it through a pull request
+  from a short-lived branch; the repository accepts squash merges only.
+- A release is a version tag on `main`, so `main` can hold code that is not released yet.
 
 ## Required validation
 
