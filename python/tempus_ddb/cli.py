@@ -23,7 +23,7 @@ from .mcp_server import main_sync
 # --- Default paths (used when global args are not provided) ---
 DEFAULT_KEYFILE = "keys.json"
 DEFAULT_DB = "tempus.db"
-DEFAULT_VERIFY_URL = "https://julio-patron.github.io/tempus-ddb/verify.html"
+DEFAULT_VERIFY_URL = "https://tempus-protocol.github.io/tempus-ddb/verify.html"
 
 
 def _verify_url_base():
@@ -1024,6 +1024,23 @@ class _UsageErrorParser(argparse.ArgumentParser):
         self.exit(1, f"{self.prog}: error: {message}\n")
 
 
+def run_guard(args):
+    """`tempus guard ...` is `tempus-guard ...`: the client lives in its own package."""
+    try:
+        from tempus_guard.cli import main as guard_main
+    except ImportError:
+        print(
+            "[ERROR] `tempus guard` needs the Tempus Guard CLI: pip install tempus-guard-cli "
+            "(https://github.com/tempus-protocol/tempus-guard-cli)",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    guard_args = list(args.guard_args)
+    if guard_args[:1] == ["--"]:
+        guard_args = guard_args[1:]  # `tempus guard -- --version` reaches tempus-guard as `--version`
+    sys.exit(guard_main(guard_args))
+
+
 def main():
     parser = _UsageErrorParser(
         prog="tempus",
@@ -1269,6 +1286,19 @@ def main():
     )
     _add_pin_arguments(chk_verify, executors=False)
 
+    # guard: the local client of Tempus Guard for GitHub (tempus-guard-cli), when installed.
+    guard_p = subparsers.add_parser(
+        "guard",
+        help="Build and sign a github.push_branch intent for a local branch (needs tempus-guard-cli)",
+        description=(
+            "Delegates to the Tempus Guard CLI: `tempus guard intent ...`, `tempus guard request ...`, "
+            "`tempus guard hook install`. Install it with `pip install tempus-guard-cli`."
+        ),
+    )
+    guard_p.add_argument(
+        "guard_args", nargs=argparse.REMAINDER, help="Arguments passed to `tempus-guard` unchanged"
+    )
+
     args = parser.parse_args()
 
     if getattr(args, "version", False):
@@ -1320,6 +1350,8 @@ def main():
             run_verify_bundle(args)
         elif args.command == "checkpoint":
             run_checkpoint(args)
+        elif args.command == "guard":
+            run_guard(args)
         elif args.command is None:
             parser.print_help()
         else:

@@ -25,6 +25,14 @@ contracts themselves are specified in [SPEC.md](SPEC.md).
   (`TEMPUS_LOCAL_KEYFILE_TOOLS`) were documented as non-evidence and development-only
   through the 0.5 line and are removed in 0.6.0; the signed flow (`request-action`,
   `commit-outcome`, `export-bundle`, `verify-bundle`) is the replacement.
+- The HTTP, Slack and payment executors (`tempus-http-executor`, `tempus-slack-executor`,
+  `tempus-payment-executor` and the `HttpExecutorAdapter`, `SlackExecutorAdapter`,
+  `PaymentExecutorAdapter` classes) leave the `tempus-ddb` wheel in 0.7.0 and live in the
+  repository as `contrib/executors/` (`tempus-executors-contrib`, installed from source,
+  never published). They are deprecated from 0.7.0 and are removed from the repository in
+  0.9.0. The GitHub executor stays as the `ActionAdapter` conformance reference; the GitHub
+  product executor is `tempus-github-app` (Tempus Guard for GitHub). Writing your own
+  adapter against `ExecutorRuntime` and the conformance harness is the replacement.
 - `verify_url` (0.6.0) is additive: it sits inside the signed receipt bodies, which
   verifiers hash whole, and as an unsigned top-level bundle field that 0.6 verifiers
   check against the bundle digest. 0.5.x receipts and bundles verify unchanged.

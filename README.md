@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/Julio-Patron/tempus-ddb/main/assets/logo.png" alt="Tempus DDB" width="180" />
+  <img src="https://raw.githubusercontent.com/tempus-protocol/tempus-ddb/main/assets/logo.png" alt="Tempus DDB" width="180" />
 
 # Tempus DDB
 
@@ -9,15 +9,15 @@ Every effect needs a signed, single-use permit. Every effect leaves a signed rec
 Anyone with the gate's public key can verify it, in a browser, without trusting anyone.
 
 <p align="center">
-  <a href="https://github.com/Julio-Patron/tempus-ddb/actions/workflows/ci.yml"><img src="https://github.com/Julio-Patron/tempus-ddb/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/tempus-protocol/tempus-ddb/actions/workflows/ci.yml"><img src="https://github.com/tempus-protocol/tempus-ddb/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="https://crates.io/crates/tempus-ddb"><img src="https://img.shields.io/crates/v/tempus-ddb.svg" alt="crates.io" /></a>
   <a href="https://docs.rs/tempus-ddb"><img src="https://img.shields.io/docsrs/tempus-ddb" alt="docs.rs" /></a>
   <a href="https://pypi.org/project/tempus-ddb/"><img src="https://img.shields.io/pypi/v/tempus-ddb.svg" alt="PyPI" /></a>
-  <a href="https://github.com/Julio-Patron/tempus-ddb/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License: MIT" /></a>
-  <a href="https://github.com/Julio-Patron/tempus-ddb/blob/main/SECURITY.md"><img src="https://img.shields.io/badge/security-policy-blue.svg?logo=shield" alt="Security Policy" /></a>
+  <a href="https://github.com/tempus-protocol/tempus-ddb/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License: MIT" /></a>
+  <a href="https://github.com/tempus-protocol/tempus-ddb/blob/main/SECURITY.md"><img src="https://img.shields.io/badge/security-policy-blue.svg?logo=shield" alt="Security Policy" /></a>
 </p>
 
-[**Verify evidence now →**](https://julio-patron.github.io/tempus-ddb/verify.html) · [Spec](SPEC.md) · [Full reference](docs/REFERENCE.md) · [Español](README.es.md)
+[**Verify evidence now →**](https://tempus-protocol.github.io/tempus-ddb/verify.html) · [Spec](SPEC.md) · [Full reference](docs/REFERENCE.md) · [Español](README.es.md)
 
 </div>
 
@@ -25,7 +25,7 @@ Anyone with the gate's public key can verify it, in a browser, without trusting 
 
 ## Start here: verify a receipt
 
-Somebody hands you a file. Open the [public verifier](https://julio-patron.github.io/tempus-ddb/verify.html),
+Somebody hands you a file. Open the [public verifier](https://tempus-protocol.github.io/tempus-ddb/verify.html),
 load the file, paste the gate's public key you obtained separately, and read the
 verdict. The page is the same verifier as the CLI, compiled to WebAssembly: it runs
 offline and nothing leaves your browser. Click **Load a real sample** to see a verified
@@ -190,12 +190,12 @@ Verification results are `tempus.trace-verification.v1` and
 
 ## Built on Tempus
 
-- **Tempus Guard for GitHub** ([tempus-github-app](https://github.com/Julio-Patron/tempus-github-app)):
+- **Tempus Guard for GitHub** ([tempus-github-app](https://github.com/tempus-protocol/tempus-github-app)):
   a GitHub App executor that pushes only under a permit and will put a "Verified by
   Tempus" check on every pull request, linking to the verifier (0.7).
-- **Local policy firewall for coding agents** ([Universal-Kernel-Ciel](https://github.com/Julio-Patron/Universal-Kernel-Ciel)):
-  the client side of Guard, emitting Tempus intents.
-- **Tempus Advance** ([Tempus-Advance](https://github.com/Julio-Patron/Tempus-Advance)):
+- **Tempus Guard CLI** ([tempus-guard-cli](https://github.com/tempus-protocol/tempus-guard-cli)):
+  the client side of Guard; `tempus guard intent` signs the push intent from a local branch.
+- **Tempus Advance** ([Tempus-Advance](https://github.com/tempus-protocol/Tempus-Advance)):
   a hosted, read-only console over the same contracts (0.9).
 
 Compared with MCP gateways and RBAC: [docs/COMPARISON.md](docs/COMPARISON.md).

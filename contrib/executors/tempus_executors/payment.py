@@ -12,7 +12,7 @@ import os
 import re
 from typing import Any, Dict, Optional, Protocol, Set, Tuple
 
-from .executor_runtime import (
+from tempus_ddb.executor_runtime import (
     AmbiguousTransportError,
     ExecutionResult,
     ExecutorRuntime,

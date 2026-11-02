@@ -19,14 +19,14 @@
 //!
 //! On `wasm32` the crate compiles only the verifier and exposes it to JavaScript
 //! (`verify_bundle`, `verify_receipt`, `verify_checkpoint`, `bundle_digest`); that build
-//! is the public browser verifier at <https://julio-patron.github.io/tempus-ddb/verify.html>.
+//! is the public browser verifier at <https://tempus-protocol.github.io/tempus-ddb/verify.html>.
 //!
 //! Signed JSON documents are parsed strictly: duplicate object keys are refused, and
 //! numbers must be exact (no floats, no integers beyond `i64`/`u64`).
 //!
-//! Documentation: <https://julio-patron.github.io/tempus-ddb/docs.html>. Threat model,
+//! Documentation: <https://tempus-protocol.github.io/tempus-ddb/docs.html>. Threat model,
 //! compatibility rules and changelog live in the repository:
-//! <https://github.com/Julio-Patron/tempus-ddb>.
+//! <https://github.com/tempus-protocol/tempus-ddb>.
 #![allow(clippy::useless_conversion)] // PyO3 macro expansion on Rust 1.96.
 
 #[cfg(not(target_arch = "wasm32"))]

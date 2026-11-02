@@ -1,6 +1,6 @@
 # B2A Gate for DevOps Agents over MCP — Product Blueprint
 
-*Based on the B2A (Bot-to-Agent / Bot-to-Action) toll gate pattern from [tempus-ddb](https://github.com/Julio-Patron/tempus-ddb), adapted for custom and standard Model Context Protocol (MCP) servers controlling GitHub PRs, repository changes, and Slack/Discord alerts.*
+*Based on the B2A (Bot-to-Agent / Bot-to-Action) toll gate pattern from [tempus-ddb](https://github.com/tempus-protocol/tempus-ddb), adapted for custom and standard Model Context Protocol (MCP) servers controlling GitHub PRs, repository changes, and Slack/Discord alerts.*
 
 ---
 

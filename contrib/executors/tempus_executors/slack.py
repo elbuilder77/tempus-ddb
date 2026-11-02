@@ -6,14 +6,15 @@ import re
 from typing import Any, Dict, Optional, Protocol, Set
 from urllib import error, request
 
-from . import __version__
-from ._http import RedirectRefused, open_request
-from .executor_runtime import (
+from tempus_ddb._http import RedirectRefused, open_request
+from tempus_ddb.executor_runtime import (
     AmbiguousTransportError,
     ExecutionResult,
     ExecutorRuntime,
     is_ambiguous_transport_error,
 )
+
+from . import __version__
 
 # One conversation: a Slack ID (public C, private/group G, direct message D) or a #name
 # (lowercase letters, digits, `-` and `_`). `resource` is sent as `channel`, which Slack

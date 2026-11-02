@@ -178,7 +178,7 @@ def main() -> int:
 
         stale_link = copy.deepcopy(bundle)
         stale_link["verify_url"] = (
-            "https://julio-patron.github.io/tempus-ddb/verify.html#bundle=" + "0" * 64
+            "https://tempus-protocol.github.io/tempus-ddb/verify.html#bundle=" + "0" * 64
         )
         emit(
             "bundle_wrong_verify_url",

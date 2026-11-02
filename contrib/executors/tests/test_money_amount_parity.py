@@ -9,7 +9,7 @@ verdicts must be equal. Attacks: forge-5 audit (`n5.py`, `variants.py`).
 import tempfile
 
 import pytest
-from tempus_ddb.payment_executor import (
+from tempus_executors.payment import (
     PaymentActionAdapter,
     PaymentExecutorError,
     canonical_money,

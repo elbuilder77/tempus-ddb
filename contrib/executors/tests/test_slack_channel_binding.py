@@ -6,7 +6,7 @@ the forge-5 audit (`audit_gs.py`).
 """
 
 import pytest
-from tempus_ddb.slack_executor import SlackActionAdapter
+from tempus_executors.slack import SlackActionAdapter
 
 
 class Transport:

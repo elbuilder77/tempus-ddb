@@ -5,7 +5,7 @@ serves `/admin`. The executor refuses those paths, as the GitHub executor alread
 """
 
 import pytest
-from tempus_ddb.http_executor import (
+from tempus_executors.http import (
     HttpActionAdapter,
     HttpExecutorError,
     _validate_https_url,

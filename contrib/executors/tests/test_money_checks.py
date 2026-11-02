@@ -10,14 +10,14 @@ import tempfile
 import time
 
 import pytest
+from support import _setup_gate_and_agents
 from tempus_ddb import TempusExecutor
 from tempus_ddb.executor_runtime import ExecutorRuntime, ExecutorRuntimeError
-from tempus_ddb.payment_executor import (
+from tempus_executors.payment import (
     PaymentActionAdapter,
     PaymentExecutorError,
     canonical_money,
 )
-from test_executor_runtime import _setup_gate_and_agents
 from test_money_binding import RecordingTransport
 
 TENANT = "tenant-money-adv"

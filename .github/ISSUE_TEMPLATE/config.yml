@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Report a security vulnerability
-    url: https://github.com/Julio-Patron/tempus-ddb/security/advisories/new
+    url: https://github.com/tempus-protocol/tempus-ddb/security/advisories/new
     about: Report vulnerabilities privately. Do not open a public issue.
   - name: Discussions
-    url: https://github.com/Julio-Patron/tempus-ddb/discussions
+    url: https://github.com/tempus-protocol/tempus-ddb/discussions
     about: Ask usage questions and discuss protocol or product ideas.

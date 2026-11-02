@@ -81,7 +81,7 @@ const verifyPage = await readFile(resolve(siteRoot, "verify.html"), "utf8");
 for (const needle of ['id="gate-key"', 'id="evidence-file"', 'src="assets/verify-page.mjs"', "Nothing leaves this page"]) {
   assert(verifyPage.includes(needle), `verify.html must contain ${needle}`);
 }
-assert(!/https?:\/\/(?!julio-patron\.github\.io|github\.com|pypi\.org|crates\.io|docs\.rs)/.test(verifyPage), "verify.html must not reference third-party hosts");
+assert(!/https?:\/\/(?!tempus-protocol\.github\.io|github\.com|pypi\.org|crates\.io|docs\.rs)/.test(verifyPage), "verify.html must not reference third-party hosts");
 
 const readme = await readFile(resolve(projectRoot, "README.md"), "utf8");
 assert(!readme.includes("Install the published beta from PyPI"), "README must not present PyPI as the beta installation source");

@@ -52,19 +52,18 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://julio-patron.github.io/tempus-ddb/"
-Documentation = "https://julio-patron.github.io/tempus-ddb/docs.html"
-Repository = "https://github.com/Julio-Patron/tempus-ddb"
-Issues = "https://github.com/Julio-Patron/tempus-ddb/issues"
-Changelog = "https://github.com/Julio-Patron/tempus-ddb/releases"
+Homepage = "https://tempus-protocol.github.io/tempus-ddb/"
+Documentation = "https://tempus-protocol.github.io/tempus-ddb/docs.html"
+Repository = "https://github.com/tempus-protocol/tempus-ddb"
+Issues = "https://github.com/tempus-protocol/tempus-ddb/issues"
+Changelog = "https://github.com/tempus-protocol/tempus-ddb/releases"
 "Rust crate" = "https://crates.io/crates/tempus-ddb"
 
 [project.scripts]
 tempus = "tempus_ddb.cli:main"
 tempus-github-executor = "tempus_ddb.github_executor:main"
-tempus-http-executor = "tempus_ddb.http_executor:main"
-tempus-slack-executor = "tempus_ddb.slack_executor:main"
-tempus-payment-executor = "tempus_ddb.payment_executor:main"
+# tempus-http-executor, tempus-slack-executor and tempus-payment-executor are provided
+# by contrib/executors (tempus-executors-contrib), which is not part of this wheel.
 
 [tool.maturin]
 features = ["pyo3/extension-module"]

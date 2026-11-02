@@ -11,10 +11,9 @@ Core Components:
 - ExecutorRuntime: Deep engine managing atomic consumption, isolation, and outcome signing.
 - ActionAdapter: Unified protocol for implementing credential-isolated adapters.
 - AdapterConformanceHarness: Standard test harness to verify custom adapter compliance.
-- GitHubExecutorAdapter / GitHubActionAdapter: Credential-isolated executor for bound GitHub writes.
-- HttpExecutorAdapter / HttpActionAdapter: Credential-isolated HTTPS webhook executor.
-- SlackExecutorAdapter / SlackActionAdapter: Credential-isolated Slack message executor.
-- PaymentExecutorAdapter / PaymentActionAdapter: Financial disburse/transfer executor with money envelope.
+- GitHubExecutorAdapter / GitHubActionAdapter: Credential-isolated executor for bound GitHub writes
+  (the conformance reference). The HTTP, Slack and payment adapters live in `contrib/executors/`
+  (distribution `tempus-executors-contrib`, not part of this wheel).
 - gen_keys: Utility to generate Ed25519 key pairs.
 - verify_receipt / verify_bundle / verify_checkpoint: Independent verification with a pinned gate public key (no database).
 - bundle_digest: SHA-256 of a canonical bundle without its verify_url (what the link carries).
@@ -46,10 +45,7 @@ from .executor_runtime import (
     UnknownExecutionError,
 )
 from .github_executor import GitHubActionAdapter, GitHubExecutorAdapter
-from .http_executor import HttpActionAdapter, HttpExecutorAdapter
 from .mcp_server import main_sync
-from .payment_executor import PaymentActionAdapter, PaymentExecutorAdapter
-from .slack_executor import SlackActionAdapter, SlackExecutorAdapter
 from .testing import AdapterConformanceHarness
 
 __all__ = [
@@ -60,12 +56,6 @@ __all__ = [
     "ExecutorRuntime",
     "GitHubActionAdapter",
     "GitHubExecutorAdapter",
-    "HttpActionAdapter",
-    "HttpExecutorAdapter",
-    "PaymentActionAdapter",
-    "PaymentExecutorAdapter",
-    "SlackActionAdapter",
-    "SlackExecutorAdapter",
     "TempusDDB",
     "TempusExecutor",
     "UnknownExecutionError",

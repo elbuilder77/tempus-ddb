@@ -10,7 +10,7 @@ import json
 import tempfile
 
 import pytest
-from tempus_ddb.payment_executor import (
+from tempus_executors.payment import (
     PaymentActionAdapter,
     PaymentExecutorError,
 )

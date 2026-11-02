@@ -11,7 +11,7 @@ from urllib import request
 
 import pytest
 from tempus_ddb import _http
-from tempus_ddb.http_executor import (
+from tempus_executors.http import (
     HttpActionAdapter,
     HttpExecutorError,
     _validate_https_url,

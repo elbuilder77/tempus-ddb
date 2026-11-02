@@ -1,6 +1,6 @@
 # B2A Financial Gate for Multi-Agent Crews — Product Blueprint
 
-*Based on the B2A (Bot-to-Agent / Bot-to-Action) toll gate pattern from [tempus-ddb](https://github.com/Julio-Patron/tempus-ddb), adapted for multi-agent workflows (CrewAI, LangGraph, AutoGen, OpenClaw) issuing payments via Stripe, banking APIs, or treasury gateways.*
+*Based on the B2A (Bot-to-Agent / Bot-to-Action) toll gate pattern from [tempus-ddb](https://github.com/tempus-protocol/tempus-ddb), adapted for multi-agent workflows (CrewAI, LangGraph, AutoGen, OpenClaw) issuing payments via Stripe, banking APIs, or treasury gateways.*
 
 ---
 

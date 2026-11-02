@@ -1,13 +1,12 @@
-"""Conformance tests for all built-in and third-party ActionAdapter implementations."""
+"""Conformance tests for the GitHub reference adapter and a third-party adapter.
+
+The HTTP, Slack and payment adapters live in `contrib/executors/`; their conformance
+tests are in `contrib/executors/tests/test_conformance.py`.
+"""
 
 from typing import Any, Dict, Set
 
-from tempus_ddb import (
-    GitHubActionAdapter,
-    HttpActionAdapter,
-    PaymentActionAdapter,
-    SlackActionAdapter,
-)
+from tempus_ddb import GitHubActionAdapter
 from tempus_ddb.executor_runtime import ExecutionResult
 from tempus_ddb.testing import AdapterConformanceHarness
 
@@ -18,20 +17,6 @@ class MockGitHubTransport:
             "id": 1234,
             "number": 99,
             "html_url": "https://github.com/acme/repo/issues/99",
-        }
-
-
-class MockHttpTransport:
-    def request(self, method, url, headers, payload):
-        return {"status": "ok", "delivered": True}
-
-
-class MockSlackTransport:
-    def request(self, endpoint, token, payload):
-        return {
-            "ok": True,
-            "ts": "1234567890.000100",
-            "message": {"text": payload.get("text")},
         }
 
 
@@ -62,46 +47,6 @@ def test_github_adapter_conformance():
         valid_action_type="github.create_issue",
         valid_resource="acme/widget-repo",
         valid_input={"title": "Test Conformance Issue", "body": "Testing"},
-    )
-    harness.run_all_checks()
-
-
-def test_http_adapter_conformance():
-    harness = AdapterConformanceHarness(
-        adapter_factory=lambda: HttpActionAdapter(
-            auth_header="Bearer secret_token",
-            allowed_domains={"api.example.com"},
-            transport=MockHttpTransport(),
-        ),
-        valid_action_type="http.post",
-        valid_resource="https://api.example.com/webhook",
-        valid_input={"event": "user.signup", "id": 42},
-    )
-    harness.run_all_checks()
-
-
-def test_slack_adapter_conformance():
-    harness = AdapterConformanceHarness(
-        adapter_factory=lambda: SlackActionAdapter(
-            token="xoxb-mock-token",
-            transport=MockSlackTransport(),
-        ),
-        valid_action_type="slack.post_message",
-        valid_resource="#security-alerts",
-        valid_input={"text": "System operational"},
-    )
-    harness.run_all_checks()
-
-
-def test_payment_adapter_conformance():
-    harness = AdapterConformanceHarness(
-        adapter_factory=lambda: PaymentActionAdapter(
-            secret_key="sk_live_isolated_secret",
-        ),
-        valid_action_type="finance.disburse",
-        valid_resource="res://treasury/main",
-        valid_input={"invoice_id": "inv_9981"},
-        valid_money={"amount": "10000", "asset": "USD", "beneficiary": "vendor_corp"},
     )
     harness.run_all_checks()
 

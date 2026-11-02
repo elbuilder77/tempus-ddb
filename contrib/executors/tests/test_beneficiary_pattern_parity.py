@@ -8,7 +8,7 @@ import time
 
 import pytest
 from tempus_ddb import TempusDDB, gen_keys
-from tempus_ddb.payment_executor import PaymentActionAdapter, PaymentExecutorError
+from tempus_executors.payment import PaymentActionAdapter, PaymentExecutorError
 
 
 class _Recorder:

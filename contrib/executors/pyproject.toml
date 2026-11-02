@@ -1,0 +1,43 @@
+# Reference executors that are NOT part of the tempus-ddb wheel and are NOT published
+# to PyPI. Install from the repository: `pip install -e contrib/executors`.
+#
+# No [tool.pytest.ini_options] or [tool.ruff] here on purpose: pytest and ruff pick up
+# the repository root pyproject.toml, so `pytest contrib/executors/tests` and
+# `ruff check contrib` run with the same settings as the core.
+
+[build-system]
+requires = ["hatchling>=1.25,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tempus-executors-contrib"
+version = "0.7.0"
+description = "Reference HTTP, Slack and payment executors for Tempus permits (repository contrib, not published)."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Tempus DDB Contributors"}
+]
+classifiers = [
+    "Private :: Do Not Upload",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "tempus-ddb>=0.6,<0.8",
+]
+
+[project.urls]
+Repository = "https://github.com/tempus-protocol/tempus-ddb/tree/main/contrib/executors"
+
+[project.scripts]
+tempus-http-executor = "tempus_executors.http:main"
+tempus-slack-executor = "tempus_executors.slack:main"
+tempus-payment-executor = "tempus_executors.payment:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tempus_executors"]
+
+[tool.hatch.build.targets.sdist]
+include = ["tempus_executors", "tests", "README.md", "pyproject.toml"]

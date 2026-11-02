@@ -12,9 +12,9 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from support import SOURCE_PATHS, run_cli
 from tempus_ddb import gen_keys
-from tempus_ddb.http_executor import HttpActionAdapter, HttpExecutorError
-from test_cli import run_cli
+from tempus_executors.http import HttpActionAdapter, HttpExecutorError
 
 
 class Recorder:
@@ -96,12 +96,12 @@ def test_cli_refuses_to_start_with_credentials_and_no_allowlist_without_a_traceb
         permit.write_text("{}")
         env = dict(os.environ)
         env.pop("HTTP_EXECUTOR_ALLOWED_DOMAINS", None)
-        env["PYTHONPATH"] = str(Path(__file__).parent.parent / "python")
+        env["PYTHONPATH"] = os.pathsep.join(SOURCE_PATHS)
         result = subprocess.run(
             [
                 sys.executable,
                 "-m",
-                "tempus_ddb.http_executor",
+                "tempus_executors.http",
                 "--permit",
                 str(permit),
                 "--executor-db",

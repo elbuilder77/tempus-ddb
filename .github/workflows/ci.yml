@@ -116,6 +116,9 @@ jobs:
           python -m pip install --upgrade pip "setuptools>=83.0.0"
           python -m pip install -e .[dev]
           python -m pip install bandit uv
+          # The HTTP, Slack and payment executors are a separate, unpublished
+          # distribution; --no-deps keeps the develop build of tempus-ddb above.
+          python -m pip install --no-deps -e contrib/executors
 
       - name: Check uv.lock is up to date
         if: runner.os == 'Linux'
@@ -124,7 +127,7 @@ jobs:
           uv lock --check
 
       - name: Run Bandit
-        run: bandit -r python/tempus_ddb/
+        run: bandit -r python/tempus_ddb/ contrib/executors/tempus_executors/
 
       # Audit the locked project and dev dependencies from an isolated
       # pip-audit, so the tool's own dependencies and packages preinstalled
@@ -157,11 +160,18 @@ jobs:
       - name: Run Python tests
         run: python -m pytest tests/ -vv --tb=long -ra
 
+      - name: Run contrib executor tests
+        run: python -m pytest contrib/executors/tests -vv --tb=long -ra
+
       - name: Test CLI basic commands
         run: |
           tempus --version
           tempus --help
           tempus-github-executor --help
+          # Provided by contrib/executors, not by the tempus-ddb wheel.
+          tempus-http-executor --help
+          tempus-slack-executor --help
+          tempus-payment-executor --help
 
       - name: Smoke test examples
         run: |

@@ -5,19 +5,20 @@ import os
 from typing import Any, Dict, Optional, Protocol, Set
 from urllib import error, parse, request
 
-from . import __version__
-from ._http import (
+from tempus_ddb._http import (
     DestinationRefused,
     RedirectRefused,
     check_host_literal,
     open_request,
 )
-from .executor_runtime import (
+from tempus_ddb.executor_runtime import (
     AmbiguousTransportError,
     ExecutionResult,
     ExecutorRuntime,
     is_ambiguous_transport_error,
 )
+
+from . import __version__
 
 
 class HttpExecutorError(RuntimeError):

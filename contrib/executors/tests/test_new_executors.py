@@ -5,12 +5,11 @@ import time
 from typing import Any, Dict
 
 import pytest
-from tempus_ddb import (
+from tempus_ddb import TempusDDB, gen_keys
+from tempus_executors import (
     HttpExecutorAdapter,
     PaymentExecutorAdapter,
     SlackExecutorAdapter,
-    TempusDDB,
-    gen_keys,
 )
 
 

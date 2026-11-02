@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/Julio-Patron/tempus-ddb/main/assets/logo.png" alt="Tempus DDB" width="180" />
+  <img src="https://raw.githubusercontent.com/tempus-protocol/tempus-ddb/main/assets/logo.png" alt="Tempus DDB" width="180" />
 
 # Tempus DDB
 
@@ -9,7 +9,7 @@ Ningún efecto sale sin un permiso firmado y de un solo uso. Todo efecto deja un
 firmado. Cualquiera con la clave pública del gate puede verificarlo en el navegador, sin
 confiar en nadie.
 
-[**Verificar evidencia ahora →**](https://julio-patron.github.io/tempus-ddb/verify.html) · [Especificación](SPEC.md) · [Referencia completa](docs/REFERENCE.md) · [English](README.md)
+[**Verificar evidencia ahora →**](https://tempus-protocol.github.io/tempus-ddb/verify.html) · [Especificación](SPEC.md) · [Referencia completa](docs/REFERENCE.md) · [English](README.md)
 
 </div>
 
@@ -17,7 +17,7 @@ confiar en nadie.
 
 ## Empieza aquí: verifica un recibo
 
-Alguien te entrega un archivo. Abre el [verificador público](https://julio-patron.github.io/tempus-ddb/verify.html),
+Alguien te entrega un archivo. Abre el [verificador público](https://tempus-protocol.github.io/tempus-ddb/verify.html),
 carga el archivo, pega la clave pública del gate que obtuviste por otro canal y lee el
 veredicto. La página es el mismo verificador que la CLI, compilado a WebAssembly: funciona
 sin red y nada sale de tu navegador. Pulsa **Load a real sample** para ver un bundle
@@ -183,12 +183,12 @@ Los resultados de verificación son `tempus.trace-verification.v1` y
 
 ## Construido sobre Tempus
 
-- **Tempus Guard for GitHub** ([tempus-github-app](https://github.com/Julio-Patron/tempus-github-app)):
+- **Tempus Guard for GitHub** ([tempus-github-app](https://github.com/tempus-protocol/tempus-github-app)):
   ejecutor GitHub App que solo hace push con permiso y pondrá un check "Verificado por
   Tempus" en cada pull request, enlazando al verificador (0.7).
-- **Firewall local de políticas para agentes de código** ([Universal-Kernel-Ciel](https://github.com/Julio-Patron/Universal-Kernel-Ciel)):
-  el lado cliente de Guard, que emite intenciones de Tempus.
-- **Tempus Advance** ([Tempus-Advance](https://github.com/Julio-Patron/Tempus-Advance)):
+- **Tempus Guard CLI** ([tempus-guard-cli](https://github.com/tempus-protocol/tempus-guard-cli)):
+  el lado cliente de Guard; `tempus guard intent` firma la intención de push desde una rama local.
+- **Tempus Advance** ([Tempus-Advance](https://github.com/tempus-protocol/Tempus-Advance)):
   consola hospedada de solo lectura sobre los mismos contratos (0.9).
 
 Comparación con gateways MCP y RBAC: [docs/COMPARISON.md](docs/COMPARISON.md).

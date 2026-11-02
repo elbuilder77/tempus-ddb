@@ -1,9 +1,11 @@
-"""The HTTP, GitHub and Slack transports must not follow redirects.
+"""The GitHub transport and the shared opener must not follow redirects.
 
 Each test drives the real executor path (ActionAdapter -> real Urllib transport ->
 real HTTP over loopback) against a local origin that answers with a 3xx pointing at a
 second local server standing in for "another host". The second server must never be
-contacted and must never receive the Authorization header.
+contacted and must never receive the Authorization header. The HTTP and Slack
+executors are covered by `contrib/executors/tests/test_redirect_blocking.py`, which
+carries its own copy of the `_Server` helper.
 """
 
 import http.server
@@ -11,10 +13,8 @@ import json
 import threading
 
 import pytest
-from tempus_ddb import github_executor, http_executor
+from tempus_ddb import github_executor
 from tempus_ddb.github_executor import GitHubActionAdapter
-from tempus_ddb.http_executor import HttpActionAdapter
-from tempus_ddb.slack_executor import SlackActionAdapter, UrllibSlackTransport
 
 REDIRECT_CODES = [301, 302, 303, 307, 308]
 # Python 3.10's urllib does not treat 308 as a redirect, so the executors
@@ -84,8 +84,7 @@ def servers():
 
 @pytest.fixture(autouse=True)
 def loopback_http(monkeypatch):
-    """Allow plain-HTTP loopback targets for the real transports (tests only)."""
-    monkeypatch.setattr(http_executor, "_validate_https_url", lambda url, *a, **k: url)
+    """Allow plain-HTTP loopback targets for the real transport (tests only)."""
     monkeypatch.setattr(
         github_executor, "_validate_github_api_url", lambda url: url.strip().rstrip("/")
     )
@@ -98,40 +97,6 @@ def _redirecting_pair(servers, code, secret_in_location=False):
         location += "?token=LOCATION-SECRET-123"
     origin = servers(status=code, headers={"Location": location})
     return origin, other
-
-
-# ---------------------------------------------------------------- HTTP executor
-
-
-def _http_intent(url):
-    return {"action_type": "http.post", "resource": url, "input": {"a": 1}}
-
-
-def _http_adapter():
-    return HttpActionAdapter(
-        auth_header="Bearer HTTP-SECRET-TOKEN", allowed_domains={"127.0.0.1"}
-    )
-
-
-@pytest.mark.parametrize("code", REDIRECT_CODES)
-def test_http_executor_refuses_redirects(servers, code):
-    origin, other = _redirecting_pair(servers, code, secret_in_location=True)
-    result = _http_adapter().execute_action(_http_intent(origin.url + "/hook"))
-    assert other.requests == [], "redirect was followed to the second host"
-    assert result.status == "FAILED"
-    assert result.payload["http_status"] == code
-    text = json.dumps(result.payload)
-    assert "HTTP-SECRET-TOKEN" not in text and "LOCATION-SECRET-123" not in text
-    assert origin.requests[0]["authorization"] == "Bearer HTTP-SECRET-TOKEN"
-    assert other.requests == []
-
-
-def test_http_executor_normal_flow_still_works(servers):
-    origin = servers(body=b'{"ok": true}')
-    result = _http_adapter().execute_action(_http_intent(origin.url + "/hook"))
-    assert result.status == "SUCCEEDED"
-    assert result.payload == {"ok": True}
-    assert origin.requests[0]["authorization"] == "Bearer HTTP-SECRET-TOKEN"
 
 
 # -------------------------------------------------------------- GitHub executor
@@ -173,44 +138,6 @@ def test_github_executor_normal_flow_still_works(servers):
     assert result.payload["number"] == 3
     assert origin.requests[0]["path"] == "/repos/acme/widget/issues"
     assert origin.requests[0]["authorization"] == "Bearer GH-SECRET-TOKEN"
-
-
-# --------------------------------------------------------------- Slack executor
-
-
-def _slack_intent():
-    return {
-        "action_type": "slack.post_message",
-        "resource": "C123",
-        "input": {"text": "hello"},
-    }
-
-
-def _slack_adapter(monkeypatch, origin):
-    monkeypatch.setattr(UrllibSlackTransport, "API_BASE", origin.url + "/api/")
-    return SlackActionAdapter(token="xoxb-SLACK-SECRET-TOKEN")
-
-
-@pytest.mark.parametrize("code", REDIRECT_CODES)
-def test_slack_executor_refuses_redirects(servers, monkeypatch, code):
-    origin, other = _redirecting_pair(servers, code, secret_in_location=True)
-    result = _slack_adapter(monkeypatch, origin).execute_action(_slack_intent())
-    assert other.requests == [], "redirect was followed to the second host"
-    assert result.status == "FAILED"
-    text = json.dumps(result.payload)
-    assert str(code) in text
-    assert "SLACK-SECRET-TOKEN" not in text and "LOCATION-SECRET-123" not in text
-    assert origin.requests[0]["authorization"] == "Bearer xoxb-SLACK-SECRET-TOKEN"
-    assert other.requests == []
-
-
-def test_slack_executor_normal_flow_still_works(servers, monkeypatch):
-    reply = {"ok": True, "ts": "1.2", "message": {"ts": "1.2"}}
-    origin = servers(body=json.dumps(reply).encode())
-    result = _slack_adapter(monkeypatch, origin).execute_action(_slack_intent())
-    assert result.status == "SUCCEEDED"
-    assert result.payload["ts"] == "1.2"
-    assert origin.requests[0]["path"] == "/api/chat.postMessage"
 
 
 # ----------------------------------------------------------------- shared opener

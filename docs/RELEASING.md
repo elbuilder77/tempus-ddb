@@ -108,15 +108,15 @@ fijado en 0.5.9 con `--locked` y `cyclonedx-bom` en 7.5.0.
 
 Hace falta la [GitHub CLI](https://cli.github.com/) autenticada (`gh auth login`)
 y los archivos tal como se descargaron. El `--repo` es el repositorio que
-ejecutó el workflow. Hoy ese repositorio es `Julio-Patron/tempus-ddb`.
+ejecutó el workflow. Hoy ese repositorio es `tempus-protocol/tempus-ddb`.
 
 Sustituye los nombres por los de la release. La procedencia SLSA es el
 predicado por defecto:
 
 ```bash
 gh attestation verify tempus_ddb-X.Y.Z-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl \
-  --repo Julio-Patron/tempus-ddb \
-  --signer-workflow Julio-Patron/tempus-ddb/.github/workflows/release.yml
+  --repo tempus-protocol/tempus-ddb \
+  --signer-workflow tempus-protocol/tempus-ddb/.github/workflows/release.yml
 ```
 
 El mismo comando sirve para el sdist y para cada SBOM, porque esos archivos
@@ -124,14 +124,14 @@ también son sujetos de la atestación de procedencia:
 
 ```bash
 gh attestation verify tempus-ddb-vX.Y.Z.spdx.json \
-  --repo Julio-Patron/tempus-ddb \
-  --signer-workflow Julio-Patron/tempus-ddb/.github/workflows/release.yml
+  --repo tempus-protocol/tempus-ddb \
+  --signer-workflow tempus-protocol/tempus-ddb/.github/workflows/release.yml
 
 gh attestation verify tempus-ddb-vX.Y.Z.rust.cdx.json \
-  --repo Julio-Patron/tempus-ddb
+  --repo tempus-protocol/tempus-ddb
 
 gh attestation verify tempus-ddb-vX.Y.Z.python.cdx.json \
-  --repo Julio-Patron/tempus-ddb
+  --repo tempus-protocol/tempus-ddb
 ```
 
 Para ver el SBOM que quedó ligado a una rueda, el sujeto es la rueda y el
@@ -141,15 +141,15 @@ CycloneDX (Rust y Python) usan el mismo tipo, `https://cyclonedx.org/bom`;
 
 ```bash
 gh attestation verify tempus_ddb-X.Y.Z-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl \
-  --repo Julio-Patron/tempus-ddb \
+  --repo tempus-protocol/tempus-ddb \
   --predicate-type https://slsa.dev/provenance/v1
 
 gh attestation verify tempus_ddb-X.Y.Z-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl \
-  --repo Julio-Patron/tempus-ddb \
+  --repo tempus-protocol/tempus-ddb \
   --predicate-type https://spdx.dev/Document/v2.3
 
 gh attestation verify tempus_ddb-X.Y.Z-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl \
-  --repo Julio-Patron/tempus-ddb \
+  --repo tempus-protocol/tempus-ddb \
   --predicate-type https://cyclonedx.org/bom \
   --format json
 ```
@@ -172,7 +172,7 @@ sigue sola.
    - No hace falta ningún secret dentro del environment.
 
 2. **Trusted Publisher en PyPI**, en el proyecto `tempus-ddb`:
-   - Owner: `Julio-Patron`.
+   - Owner: `tempus-protocol`.
    - Repository: `tempus-ddb`.
    - Workflow: `release.yml`.
    - Environment: `release`.
@@ -184,7 +184,7 @@ sigue sola.
 3. **Trusted Publisher en crates.io**, en el crate `tempus-ddb` (Settings →
    Trusted Publishing). El crate ya está publicado, así que no hace falta un
    primer `cargo publish` manual:
-   - Owner: `Julio-Patron`.
+   - Owner: `tempus-protocol`.
    - Repository: `tempus-ddb`.
    - Workflow filename: `release.yml`.
    - Environment: `release`.

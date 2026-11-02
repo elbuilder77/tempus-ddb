@@ -75,7 +75,7 @@ def test_create_and_verify_checkpoint():
             "agent_id": agent_id,
             "idempotency_key": "chk-action-01",
             "action_type": "github.create_issue",
-            "resource": "elbuilder77/tempus-ddb",
+            "resource": "tempus-protocol/tempus-ddb",
             "requested_at": int(time.time() * 1_000_000),
             "input": {"title": "Checkpoints in 0.5"},
         }
@@ -91,7 +91,7 @@ def test_create_and_verify_checkpoint():
             "executor_id": exec_id,
             "status": "SUCCEEDED",
             "output": {
-                "html_url": "https://github.com/elbuilder77/tempus-ddb/issues/101"
+                "html_url": "https://github.com/tempus-protocol/tempus-ddb/issues/101"
             },
             "completed_at": int(time.time() * 1_000_000),
         }

@@ -33,7 +33,7 @@ quotas, telemetry) comes last, when a paying deployment needs it.
 Evidence at the front: anyone who is handed a receipt or a bundle can verify it in a
 browser, without installing anything and without trusting the gate that issued it.
 
-- Public browser verifier at <https://julio-patron.github.io/tempus-ddb/verify.html>:
+- Public browser verifier at <https://tempus-protocol.github.io/tempus-ddb/verify.html>:
   the wasm32 build of this crate, offline, pinned gate key, plain-language account of
   what the document cannot show.
 - `verify_url` in every signed permit and execution receipt (`#action=<action_id>`) and
@@ -57,9 +57,9 @@ Tempus Guard for GitHub: the first installable product on the protocol.
   verifier with the bundle for the agent's action.
 - The GitHub executor (`tempus-github-app`) issues the permit-bound push with a
   short-lived token and exports the bundle the check links to.
-- The local policy firewall for coding agents (Universal-Kernel-Ciel) emits Tempus
+- The Tempus Guard CLI (`tempus guard`; repository `tempus-guard-cli`, formerly Ciel) emits Tempus
   intents and consumes permits instead of keeping its own ledger and policy language.
-- One policy evaluator (`jsonlogic-fast`) for the gate and the local firewall.
+- One policy evaluator (`jsonlogic-fast`) for the gate and the local client.
 - Dogfooding: every agent push to the project's own repositories goes through Guard.
 
 Exit criteria: an agent can open a PR only through a permit, and a reviewer can verify

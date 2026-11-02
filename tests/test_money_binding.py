@@ -4,8 +4,9 @@ The policy used to evaluate `money.amount_minor` and `money.currency` when prese
 the payment executor sent `money.amount` and `money.asset`: `{"amount":"99999.00",
 "amount_minor":1}` was ALLOWED under a limit of 10000.00 and the transport received
 99999.00, and `{"currency":"USD","asset":"EUR"}` passed a USD-only list and paid in EUR.
-The gate now refuses an intent whose money fields disagree (before anything is signed),
-and the payment executor derives amount and asset from the same canonical reading.
+The gate now refuses an intent whose money fields disagree (before anything is signed).
+The executor side (the payment adapter derives amount and asset from the same canonical
+reading) is in `contrib/executors/tests/test_money_binding.py`.
 """
 
 import json
@@ -13,20 +14,9 @@ import tempfile
 import time
 
 import pytest
-from tempus_ddb.executor_runtime import ExecutorRuntime
-from tempus_ddb.payment_executor import PaymentActionAdapter, PaymentExecutorError
 from test_executor_runtime import _setup_gate_and_agents
 
 TENANT = "tenant-money"
-
-
-class RecordingTransport:
-    def __init__(self):
-        self.calls = []
-
-    def disburse(self, secret_key, amount, asset, beneficiary, metadata):
-        self.calls.append((amount, asset, beneficiary))
-        return {"status": "SETTLED"}
 
 
 def _world(tmpdir):
@@ -99,46 +89,6 @@ def test_gate_refuses_money_fields_that_disagree(name, money):
         assert "TEMPUS_INVALID_CONTRACT" in str(excinfo.value), excinfo.value
 
 
-COHERENT = [
-    ("amount-asset", {"amount": "25.00", "asset": "USD"}, ("25.00", "USD")),
-    (
-        "one-decimal",
-        {"amount": "25.5", "amount_minor": 2550, "currency": "USD"},
-        ("25.5", "USD"),
-    ),
-    ("minor-currency", {"amount_minor": 2500, "currency": "USD"}, ("25.00", "USD")),
-    (
-        "both-same",
-        {"amount": "25.00", "amount_minor": 2500, "currency": "USD", "asset": "USD"},
-        ("25.00", "USD"),
-    ),
-]
-
-
-@pytest.mark.parametrize("name,money,sent", COHERENT, ids=[c[0] for c in COHERENT])
-def test_coherent_money_is_allowed_and_the_executor_sends_what_the_policy_read(
-    name, money, sent
-):
-    money = {**money, "beneficiary": "b"}
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        gate, gate_id, agent_id, exec_db, exec_key, agent_key = _world(tmpdir)
-        permit = gate.request_action(
-            _intent(agent_id, f"k-{name}", money), agent_key, 30
-        )
-        assert json.loads(permit)["authorization"]["decision"] == "ALLOWED"
-        transport = RecordingTransport()
-        runtime = ExecutorRuntime(
-            executor_db=exec_db,
-            executor_keyfile=exec_key,
-            trusted_gate_id=gate_id,
-            trusted_tenant_id=TENANT,
-        )
-        adapter = PaymentActionAdapter(transport=transport)
-        receipt = json.loads(runtime.execute_permit(permit, adapter))
-        assert receipt["status"] == "SUCCEEDED", receipt
-        assert transport.calls == [(sent[0], sent[1], "b")]
-
-
 def test_policy_still_blocks_what_it_reads_over_the_limit():
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         gate, _, agent_id, _, _, agent_key = _world(tmpdir)
@@ -153,18 +103,6 @@ def test_policy_still_blocks_what_it_reads_over_the_limit():
             )
             assert result["authorization"]["decision"] == "BLOCKED", key
             assert "POLICY_MONEY_DENIED" in result["authorization"]["reason_codes"]
-
-
-@pytest.mark.parametrize("name,money", INCOHERENT, ids=[n for n, _ in INCOHERENT])
-def test_payment_adapter_refuses_disagreeing_fields_on_its_own(name, money):
-    """Defence in depth for an adapter used outside the gate's re-evaluation."""
-    transport = RecordingTransport()
-    adapter = PaymentActionAdapter(transport=transport)
-    with pytest.raises(PaymentExecutorError):
-        adapter.execute_action(
-            {"action_type": "payment.charge", "money": {**money, "beneficiary": "b"}}
-        )
-    assert transport.calls == []
 
 
 def test_a_bundle_signed_by_the_old_gate_with_disagreeing_money_no_longer_verifies():

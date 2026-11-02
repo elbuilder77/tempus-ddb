@@ -138,7 +138,7 @@ accepts and a verifier checks.
 | `issued_at`, `expires_at` | yes | Microseconds; `expires_at = issued_at + ttl` |
 | `gate_id` | yes | The gate public key |
 | `gate_signer` | yes | Signer identity of the gate |
-| `verify_url` | yes | `<verifier>#action=<action_id>`; default verifier `https://julio-patron.github.io/tempus-ddb/verify.html`, overridable with `TEMPUS_VERIFY_URL` |
+| `verify_url` | yes | `<verifier>#action=<action_id>`; default verifier `https://tempus-protocol.github.io/tempus-ddb/verify.html`, overridable with `TEMPUS_VERIFY_URL` |
 | `authorization_id` | no | `sha256_hex(body)` |
 | `gate_signature` | no | Digest signature over `authorization_id` |
 

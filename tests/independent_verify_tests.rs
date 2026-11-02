@@ -625,7 +625,7 @@ fn bundle_verify_url_names_the_bundle_digest_and_the_public_verifier() {
     assert_eq!(
         bundle["verify_url"],
         json!(format!(
-            "https://julio-patron.github.io/tempus-ddb/verify.html#bundle={digest}"
+            "https://tempus-protocol.github.io/tempus-ddb/verify.html#bundle={digest}"
         ))
     );
     let result = check_bundle(&bundle, &w.gate_id, &[]);
@@ -675,7 +675,7 @@ fn receipts_carry_a_signed_verify_url_for_their_action() {
     let w = world("25.00");
     let trace = parse(&w.storage.get_trace(&w.action_id).unwrap());
     let expected = format!(
-        "https://julio-patron.github.io/tempus-ddb/verify.html#action={}",
+        "https://tempus-protocol.github.io/tempus-ddb/verify.html#action={}",
         w.action_id
     );
     assert_eq!(

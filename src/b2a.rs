@@ -30,7 +30,8 @@ const AGENT_REGISTRATION_SCHEMA: &str = "tempus.agent-registration.v1";
 
 /// Public verifier every receipt and bundle points to. Override with `TEMPUS_VERIFY_URL`
 /// (an `https://` or `http://` page) to point evidence at a self-hosted verifier.
-pub(crate) const DEFAULT_VERIFY_URL: &str = "https://julio-patron.github.io/tempus-ddb/verify.html";
+pub(crate) const DEFAULT_VERIFY_URL: &str =
+    "https://tempus-protocol.github.io/tempus-ddb/verify.html";
 
 /// Base URL of the verifier that receipts and bundles should link to.
 #[cfg(not(target_arch = "wasm32"))]

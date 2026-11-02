@@ -40,19 +40,19 @@ Inspect how Tempus binds the entire lifecycle (Intent ➔ Authorization ➔ Exec
    Signed Intent ──► Expiring Permit ──► Execution Receipt ──► Auditable Trace
 ```
 
-👉 **[Launch Interactive In-Browser Demo](https://julio-patron.github.io/tempus-ddb/trace.html)** — *Test tamper detection, hash validation, and signature verification live.*
+👉 **[Launch Interactive In-Browser Demo](https://tempus-protocol.github.io/tempus-ddb/trace.html)** — *Test tamper detection, hash validation, and signature verification live.*
 
 ---
 
 The `0.6.0` implementation establishes the local permit protocol, signed policy
 bundles, rotation and revocation, unified mediated `ExecutorRuntime` (GitHub, HTTP/Webhooks, Slack, and Pluggable Payments), Vault Transit signing, single-instance replay protection, and cryptographically signed monotonic checkpoints for verifiable disaster recovery. Read
-[THREAT_MODEL.md](https://github.com/Julio-Patron/tempus-ddb/blob/main/THREAT_MODEL.md) before relying on the current security boundary.
+[THREAT_MODEL.md](https://github.com/tempus-protocol/tempus-ddb/blob/main/THREAT_MODEL.md) before relying on the current security boundary.
 
 ## What is implemented
 
-- **[Enterprise Architecture & Product Blueprints](https://github.com/Julio-Patron/tempus-ddb/blob/main/docs/blueprints/README.md)**: Production implementation guides for
-  [DevOps over MCP (OpenClaw, Hermes Agent, Cursor, Claude, Windsurf)](https://github.com/Julio-Patron/tempus-ddb/blob/main/docs/blueprints/devops-mcp/product-blueprint.md)
-  and [Financial Toll Gates for Multi-Agent Crews (CrewAI, LangGraph, AutoGen)](https://github.com/Julio-Patron/tempus-ddb/blob/main/docs/blueprints/payments-crewai/product-blueprint.md).
+- **[Enterprise Architecture & Product Blueprints](https://github.com/tempus-protocol/tempus-ddb/blob/main/docs/blueprints/README.md)**: Production implementation guides for
+  [DevOps over MCP (OpenClaw, Hermes Agent, Cursor, Claude, Windsurf)](https://github.com/tempus-protocol/tempus-ddb/blob/main/docs/blueprints/devops-mcp/product-blueprint.md)
+  and [Financial Toll Gates for Multi-Agent Crews (CrewAI, LangGraph, AutoGen)](https://github.com/tempus-protocol/tempus-ddb/blob/main/docs/blueprints/payments-crewai/product-blueprint.md).
 - Stable machine contracts with explicit `schema_version` values (`.v1`).
 - Separate Ed25519 identities for the Tempus gate, requesting agent, and executor.
 - Immutable, gate-signed agent registration receipts. Registrations cannot be silently
@@ -119,7 +119,7 @@ python -m pip install tempus-ddb
 ```
 
 ### 2. From GitHub Release Wheels & SBOM
-Download the pre-built native wheel matching your platform or the SBOM files from [GitHub Releases](https://github.com/Julio-Patron/tempus-ddb/releases). Releases cut by the tag workflow attach an SPDX SBOM and CycloneDX SBOMs for Rust and Python. Verify them with the commands in [docs/RELEASING.md](https://github.com/Julio-Patron/tempus-ddb/blob/main/docs/RELEASING.md).
+Download the pre-built native wheel matching your platform or the SBOM files from [GitHub Releases](https://github.com/tempus-protocol/tempus-ddb/releases). Releases cut by the tag workflow attach an SPDX SBOM and CycloneDX SBOMs for Rust and Python. Verify them with the commands in [docs/RELEASING.md](https://github.com/tempus-protocol/tempus-ddb/blob/main/docs/RELEASING.md).
 ```bash
 pip install ./tempus_ddb-0.6.0-<platform>.whl
 ```
@@ -136,7 +136,7 @@ The PyPI and release wheels above need no Rust.
 # Install Rust once (https://rustup.rs), then reopen your shell or: . "$HOME/.cargo/env"
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-git clone https://github.com/Julio-Patron/tempus-ddb.git
+git clone https://github.com/tempus-protocol/tempus-ddb.git
 cd tempus-ddb
 pip install -e ".[dev]"      # builds the extension with maturin; takes a few minutes
 tempus --version
@@ -164,7 +164,7 @@ tempus conformance --signer
 
 The gate signer configuration is the global `--keyfile` and defaults to `keys.json`.
 Production deployments should use the non-secret Vault Transit configuration described
-in [docs/VAULT_TRANSIT_SIGNER.md](https://github.com/Julio-Patron/tempus-ddb/blob/main/docs/VAULT_TRANSIT_SIGNER.md); the workload authenticates
+in [docs/VAULT_TRANSIT_SIGNER.md](https://github.com/tempus-protocol/tempus-ddb/blob/main/docs/VAULT_TRANSIT_SIGNER.md); the workload authenticates
 to Vault without placing a private key in the file.
 
 ## Install a signed policy bundle
@@ -324,7 +324,7 @@ tempus checkpoint verify --checkpoint checkpoint-acme.json --stream stream-acme.
     --gate-public-key <gate-public-key-hex|file>
 ```
 
-See [docs/BACKUP_AND_DISASTER_RECOVERY.md](https://github.com/Julio-Patron/tempus-ddb/blob/main/docs/BACKUP_AND_DISASTER_RECOVERY.md) for complete disaster recovery, hot backup, and reconciliation procedures.
+See [docs/BACKUP_AND_DISASTER_RECOVERY.md](https://github.com/tempus-protocol/tempus-ddb/blob/main/docs/BACKUP_AND_DISASTER_RECOVERY.md) for complete disaster recovery, hot backup, and reconciliation procedures.
 
 ## Python quickstart
 
@@ -410,11 +410,11 @@ private keys and keyfiles never enter the gate process.
 
 ## 📚 Cookbooks & Framework Integrations
 
-Explore practical integration recipes in the [cookbooks/](https://github.com/Julio-Patron/tempus-ddb/tree/main/cookbooks) directory:
+Explore practical integration recipes in the [cookbooks/](https://github.com/tempus-protocol/tempus-ddb/tree/main/cookbooks) directory:
 
-- [🦜🔗 **LangChain & LangGraph Guard**](https://github.com/Julio-Patron/tempus-ddb/blob/main/cookbooks/langchain_agent_guard.py) — Wrap sensitive tools (DB writes, payouts) so they run only with a signed, single-use permit.
-- [👥 **CrewAI Multi-Agent Financial Gate**](https://github.com/Julio-Patron/tempus-ddb/blob/main/cookbooks/crewai_action_gate.py) — Multi-agent delegation where executors require signed gate permits before executing effects.
-- [🔌 **Claude Desktop & Cursor MCP Quickstart**](https://github.com/Julio-Patron/tempus-ddb/blob/main/cookbooks/mcp_cursor_claude_quickstart.md) — Connect Tempus DDB as an autonomous Model Context Protocol server in 2 minutes.
+- [🦜🔗 **LangChain & LangGraph Guard**](https://github.com/tempus-protocol/tempus-ddb/blob/main/cookbooks/langchain_agent_guard.py) — Wrap sensitive tools (DB writes, payouts) so they run only with a signed, single-use permit.
+- [👥 **CrewAI Multi-Agent Financial Gate**](https://github.com/tempus-protocol/tempus-ddb/blob/main/cookbooks/crewai_action_gate.py) — Multi-agent delegation where executors require signed gate permits before executing effects.
+- [🔌 **Claude Desktop & Cursor MCP Quickstart**](https://github.com/tempus-protocol/tempus-ddb/blob/main/cookbooks/mcp_cursor_claude_quickstart.md) — Connect Tempus DDB as an autonomous Model Context Protocol server in 2 minutes.
 
 ```bash
 # Run the LangChain guard recipe
@@ -452,9 +452,17 @@ Additional standalone scripts in `examples/`:
 python examples/full_agent_flow.py
 ```
 
-## Packaged Mediated Executors
+## Mediated Executors
 
-Tempus includes four official, credential-isolated executors out of the box. The requesting AI agent *never* holds downstream API keys or secrets.
+The requesting AI agent *never* holds downstream API keys or secrets. Since 0.7 the wheel
+ships one executor, `tempus-github-executor`, as the conformance reference for the
+`ActionAdapter` protocol; the product executor for GitHub is
+[Tempus Guard for GitHub](https://github.com/tempus-protocol/tempus-github-app)
+(`tempus-github-app`), which adds permit-bound pushes and the "Verified by Tempus" check.
+The HTTP, Slack and payment executors live in this repository under
+[`contrib/executors/`](../contrib/executors/README.md) as the unpublished distribution
+`tempus-executors-contrib` (`pip install -e contrib/executors`); their commands and options
+are unchanged and documented below.
 
 **Where `permit.json` comes from.** It is the output of `tempus request-action` (see
 *End-to-end from the CLI*): `tempus request-action --intent intent.json --agent-keyfile
@@ -481,7 +489,7 @@ tempus-github-executor \
   --tenant-id acme
 ```
 
-### 2. HTTP & Webhook Executor (`tempus-http-executor`)
+### 2. HTTP & Webhook Executor (`tempus-http-executor`, contrib)
 Executes HTTPS POST/PUT webhooks and external API mutations while isolating authorization headers:
 - Supported actions: `http.post`, `http.put`, `webhook.send`.
 
@@ -539,7 +547,7 @@ tempus-http-executor \
 - An ambiguous transport outcome is recorded as `UNKNOWN` and is not retried.
   Classification uses the exception type. A validation failure is `FAILED`.
 
-### 3. Slack Executor (`tempus-slack-executor`)
+### 3. Slack Executor (`tempus-slack-executor`, contrib)
 Dispatches channel alerts and notifications while isolating `SLACK_BOT_TOKEN`:
 - Supported actions: `slack.post_message`, `slack.send_alert`.
 - The permit `resource` is the channel and must be **exactly one**: an ID (`C`, `G` or `D` +
@@ -558,7 +566,7 @@ tempus-slack-executor \
   --token "xoxb-<isolated-slack-bot-token>"
 ```
 
-### 4. Pluggable Financial Adapter (`tempus-payment-executor`)
+### 4. Pluggable Financial Adapter (`tempus-payment-executor`, contrib)
 Reference pluggable executor that enforces the universal `money` envelope (`amount` or `amount_minor`, `asset` or `currency`, `beneficiary`; fields that disagree are refused) and minor-unit limits with credential isolation:
 - Supported actions: `finance.disburse`, `finance.transfer`, `payment.charge`. Each one
   requires a `money` object and a non-zero amount; a missing, null, or zero amount is
@@ -591,6 +599,18 @@ tempus-payment-executor \
   cumulative, daily or velocity limits, no sanctions/KYC checks, no confirmation of the
   provider's settlement, and the shipped transport is a mock. Put the real controls
   (provider-side limits, approvals, reconciliation) at the provider.
+
+## `tempus guard`: the agent's side
+
+`tempus guard ...` is the Tempus Guard CLI ([tempus-guard-cli](https://github.com/tempus-protocol/tempus-guard-cli),
+`pip install tempus-guard-cli`) reached through the core CLI; without it installed the command says so
+and exits 2. `tempus guard intent --branch agent/fix-123 --base origin/main --tenant-id acme
+--agent-keyfile agent.keys.json` reads the local branch, writes the git bundle and prints the
+signed `github.push_branch` intent (`intent`, `agent_id`, `agent_signature`) with the bundle
+digest, the changed paths and `diff_sha256`, ready for `request_action_signed` or
+`tempus guard request --signed signed.json --gate-db gate.db --gate-keyfile gate.keys.json`.
+`tempus guard hook install` makes the clone refuse direct pushes. Options meant for `tempus-guard`
+itself go after `--` (`tempus guard -- --version`).
 
 ## Performance Benchmarks
 
@@ -633,8 +653,8 @@ Trace verification is `VERIFIED` or `INVALID`.
 
 Phase 3 fields are additive to the v1 authorization contracts. Executors require and
 verify them, while historical Phase 2 receipts keep their original signature semantics.
-See [COMPATIBILITY.md](https://github.com/Julio-Patron/tempus-ddb/blob/main/COMPATIBILITY.md) for support/deprecation rules and
-[MIGRATION_0.4.md](https://github.com/Julio-Patron/tempus-ddb/blob/main/MIGRATION_0.4.md) for the `0.3.x` upgrade procedure.
+See [COMPATIBILITY.md](https://github.com/tempus-protocol/tempus-ddb/blob/main/COMPATIBILITY.md) for support/deprecation rules and
+[MIGRATION_0.4.md](https://github.com/tempus-protocol/tempus-ddb/blob/main/MIGRATION_0.4.md) for the `0.3.x` upgrade procedure.
 
 ## MCP autonomous mode
 
@@ -689,14 +709,14 @@ tempus list-policies
 tempus identity-events
 ```
 
-The public [trace demo](https://julio-patron.github.io/tempus-ddb/trace.html) is a
+The public [trace demo](https://tempus-protocol.github.io/tempus-ddb/trace.html) is a
 synthetic, browser-only illustration of hashes, signatures and record binding. A future
 read-only audit console must derive its views from these contracts; it is not in the
 current source line.
 
 ## Independent verification (pinned gate key)
 
-The [public browser verifier](https://julio-patron.github.io/tempus-ddb/verify.html) runs
+The [public browser verifier](https://tempus-protocol.github.io/tempus-ddb/verify.html) runs
 the same checks as the commands below, offline, from the `verify_url` every receipt and
 bundle carries. The CLI equivalents:
 
@@ -861,7 +881,7 @@ This implementation detects receipt, policy, evidence, and trace alteration; rej
 unregistered or revoked actors; prevents conflicting idempotent requests; and prevents
 two outcomes from consuming one permit. It does not yet prevent deletion or rollback of
 the entire local database, nor bypass by an agent that still possesses downstream
-credentials. Read [THREAT_MODEL.md](https://github.com/Julio-Patron/tempus-ddb/blob/main/THREAT_MODEL.md)
+credentials. Read [THREAT_MODEL.md](https://github.com/tempus-protocol/tempus-ddb/blob/main/THREAT_MODEL.md)
 before using Tempus for high-impact production actions.
 
 ## Roadmap
@@ -869,11 +889,11 @@ before using Tempus for high-impact production actions.
 0.6 "Evidence" puts the verifier in front: a public browser verifier, `verify_url` in
 every receipt and bundle, and the protocol specification with conformance fixtures.
 Next: 0.7 Guard (Tempus Guard for GitHub), 0.8 Anchor, 0.9 Console, 1.0 GA. See
-[ROADMAP.md](https://github.com/Julio-Patron/tempus-ddb/blob/main/ROADMAP.md).
+[ROADMAP.md](https://github.com/tempus-protocol/tempus-ddb/blob/main/ROADMAP.md).
 
 ## Development
 
-See [CONTRIBUTING.md](https://github.com/Julio-Patron/tempus-ddb/blob/main/CONTRIBUTING.md) for setup, security reporting, and pull-request
+See [CONTRIBUTING.md](https://github.com/tempus-protocol/tempus-ddb/blob/main/CONTRIBUTING.md) for setup, security reporting, and pull-request
 requirements. The complete local verification set is:
 
 ```bash
@@ -887,4 +907,4 @@ python -m maturin build
 
 ## License
 
-MIT. See [LICENSE](https://github.com/Julio-Patron/tempus-ddb/blob/main/LICENSE).
+MIT. See [LICENSE](https://github.com/tempus-protocol/tempus-ddb/blob/main/LICENSE).

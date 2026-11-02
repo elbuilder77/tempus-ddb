@@ -129,7 +129,7 @@ fn test_end_to_end_flow() {
     assert_eq!(
         permit["authorization"]["verify_url"],
         json!(format!(
-            "https://julio-patron.github.io/tempus-ddb/verify.html#action={action_id}"
+            "https://tempus-protocol.github.io/tempus-ddb/verify.html#action={action_id}"
         ))
     );
 
@@ -216,7 +216,7 @@ fn test_end_to_end_flow() {
     assert_eq!(
         bundle["verify_url"],
         json!(format!(
-            "https://julio-patron.github.io/tempus-ddb/verify.html#bundle={digest}"
+            "https://tempus-protocol.github.io/tempus-ddb/verify.html#bundle={digest}"
         ))
     );
 

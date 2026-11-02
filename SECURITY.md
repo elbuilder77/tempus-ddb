@@ -15,7 +15,7 @@ will be included in the next tagged beta.
 
 If you discover a security vulnerability, please report it responsibly.
 
-- Open a private security advisory on GitHub: https://github.com/Julio-Patron/tempus-ddb/security/advisories/new
+- Open a private security advisory on GitHub: https://github.com/tempus-protocol/tempus-ddb/security/advisories/new
 
 Please do **not** open a public issue for security vulnerabilities.
 
@@ -40,7 +40,7 @@ approval gate are documented in [docs/RELEASING.md](docs/RELEASING.md).
 - The in-tree GitHub executor (`tempus-github-executor`) is a single-instance adapter for
   issue and pull-request creation. It reads a personal access token from `GITHUB_TOKEN` in
   the executor environment only; an agent that also holds that token can bypass Tempus. The
-  customer path is [`tempus-github-app`](https://github.com/Julio-Patron/tempus-github-app),
+  customer path is [`tempus-github-app`](https://github.com/tempus-protocol/tempus-github-app),
   which mints short-lived installation tokens and is the executor installed for a
   design-partner pilot.
 - An executor result of `UNKNOWN` requires manual reconciliation and must never be retried
