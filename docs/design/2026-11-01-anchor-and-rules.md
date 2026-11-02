@@ -128,12 +128,15 @@ RFC 3161 proof:
    certificates, `pathLenConstraint` respected, no unknown critical extension, every
    certificate valid *at `genTime`*, not today, so old evidence keeps verifying.
 
-The time is the latest the token allows: `genTime` plus its `accuracy`, rounded up to a whole
-second. Certificates are judged at `genTime` itself.
+The time is the latest the token allows: `genTime` plus its `accuracy`, each rounded up to a whole
+second first. Certificates are judged at `genTime` itself. The chain walk follows the first issuer
+that holds at each step and does not go back: that can refuse a token whose path exists, never
+accept one whose path does not, and it keeps hostile certificates from costing more than one walk.
 
 Accepted algorithms: ECDSA P-256 and P-384 with SHA-256/384/512; RSA PKCS#1 v1.5 with
-SHA-256/384/512, a modulus of 2048 to 8192 bits and an odd exponent above 1 of at most 8 bytes. RSA-PSS, SHA-1 signatures and anything
-else are `ANCHOR_TSA_ALGORITHM_UNSUPPORTED`.
+SHA-256/384/512 and a modulus of 2048 to 8192 bits. RSA-PSS, SHA-1 signatures and anything else
+are `ANCHOR_TSA_ALGORITHM_UNSUPPORTED`. An RSA key with an even modulus, or a public exponent that
+is even, 1 or over 8 bytes, is `ANCHOR_TSA_TOKEN_MALFORMED`.
 
 Both proofs: the time must not be more than 300 s before `created_at`
 (`ANCHOR_BEFORE_CHECKPOINT`): a checkpoint cannot be anchored before it exists. There is no
@@ -270,7 +273,8 @@ works without money. It computes nothing itself. Every value comes from `jsonlog
 there remains one policy evaluator. The evaluator parses its context for every node it is asked
 about, so each rule gets only the paths it names, and an input of megabytes it never reads costs
 nothing. What a rule does read is charged against 64 MiB of rule and context text per evaluation,
-and past that it fails, so a hostile bundle costs its reader a bounded amount. A verifier also
+and past that it and the rules after it fail, so a hostile bundle costs its reader a bounded amount.
+A verifier also
 reaches this with a bundle it has already refused, so a rule outside the grammar never reaches the
 evaluator, whoever signed it.
 

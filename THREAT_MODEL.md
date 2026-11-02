@@ -130,7 +130,7 @@ Rules are data, in a closed typed subset of JsonLogic checked when a policy is r
 re-executes them, so a gate cannot sign an `ALLOWED` its own rule denies without a verifier finding
 it. A rule's work is bounded by 32 rules, 256 nodes and 16 levels, and it reads only the fields it
 names. What it reads is charged against 64 MiB of rule and context text per evaluation, and past
-that the rule fails, so a hostile bundle costs whoever opens it a bounded amount.
+that the remaining rules fail, so a hostile bundle costs whoever opens it a bounded amount.
 
 ## Threats and residual risk
 

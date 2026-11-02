@@ -384,8 +384,8 @@ fn parse_tst_info(raw: &[u8]) -> Result<TstInfo<'_>, DerError> {
 }
 
 /// RFC 3161, section 2.4.2: the time is `genTime` give or take its `accuracy`, so a token can
-/// only say "no later than" the two added. In whole seconds, rounding up, because the fraction
-/// `genTime` may hold is floored when it is read.
+/// only say "no later than" the two added. In whole seconds, each rounded up on its own, because
+/// the fraction `genTime` may hold is floored when it is read.
 fn allowance(accuracy: Option<&Tlv<'_>>, gen_time: &Tlv<'_>) -> Result<i64, DerError> {
     let mut seconds = i64::from(gen_time.value.contains(&b'.'));
     if let Some(accuracy) = accuracy {
@@ -409,9 +409,15 @@ fn allowance(accuracy: Option<&Tlv<'_>>, gen_time: &Tlv<'_>) -> Result<i64, DerE
     Ok(seconds)
 }
 
-/// The content of a small non-negative DER integer, however it is tagged. Enough for 136 years.
+/// The content of a non-negative DER integer of at most 32 bits, however it is tagged. Enough
+/// for 136 years. A leading zero is only allowed where it keeps the sign clear.
 fn small_integer(content: &[u8]) -> Result<i64, DerError> {
-    if content.is_empty() || content.len() > 5 || content[0] & 0x80 != 0 {
+    let (longest, canonical) = match content {
+        [] => return Err(DerError),
+        [0, next, ..] => (5, next & 0x80 != 0),
+        [first, ..] => (4, first & 0x80 == 0),
+    };
+    if !canonical || content.len() > longest {
         return Err(DerError);
     }
     Ok(content
@@ -508,7 +514,9 @@ fn find_signer<'t, 'a>(token: &'t Token<'a>) -> Option<&'t Certificate<'a>> {
 
 /// Walk from the signer to a pinned root using only the token's certificates. A candidate
 /// that cannot be checked is skipped, not fatal: two certificates may share a name, and only
-/// when no path exists does the unsupported algorithm become the reason.
+/// when the walk ends short of a root does the unsupported algorithm become the reason. It does
+/// not go back: the first issuer that holds at a step is the one followed, and a token that lists
+/// one leading nowhere ahead of one reaching a root is refused. That can only refuse too much.
 fn chain_reaches_root(
     token: &Token<'_>,
     signer: &Certificate<'_>,

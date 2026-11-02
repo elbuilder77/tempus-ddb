@@ -241,8 +241,8 @@ order, after any other policy reason. Either makes the decision `BLOCKED`, and a
 re-executes the rules when it reproduces the decision.
 
 An implementation MUST bound the work a rule list can cause. The reference implementation reads
-at most 64 MiB of rule and context text per evaluation, and past that a rule fails. A policy
-anywhere near that is not portable.
+at most 64 MiB of rule and context text per evaluation, and past that the rule and every rule
+after it fail. A policy anywhere near that is not portable.
 
 ### 3.5 `tempus.policy-evidence.v1` — why the decision came out that way
 
@@ -428,12 +428,15 @@ certificate attribute), the signature over them, the signer's critical extended 
 `timeStamping` and nothing else, and a chain built only from the token's certificates up to a pinned root: issuer and
 subject bytes equal, signature valid, issuer a CA allowed to sign certificates,
 `pathLenConstraint` respected, no unknown critical extension, every certificate valid *at
-`genTime`*, not today, so old evidence keeps verifying. A certificate that could not serve is
-passed over in favour of one that can. The proof's time is the latest the token allows: `genTime`
-plus its `accuracy`, rounded up to a whole second. Accepted algorithms are ECDSA P-256 and P-384
-with SHA-256, SHA-384 or SHA-512, and RSA PKCS#1 v1.5 with those hashes, a modulus of 2048 to 8192
-bits and an odd public exponent above 1 of at most 8 bytes. Anything else is
-`ANCHOR_TSA_ALGORITHM_UNSUPPORTED`.
+`genTime`*, not today, so old evidence keeps verifying. At each step a certificate that fails any
+of these is passed over for the next one with that name. The reference verifier follows the first
+that holds and does not go back, so a token listing an issuer that leads nowhere ahead of one
+reaching a root is refused, even though a path exists. The proof's time is the latest the token
+allows: `genTime` plus its `accuracy`, each rounded up to a whole second first. Accepted algorithms
+are ECDSA P-256 and P-384 with SHA-256, SHA-384 or SHA-512, and RSA PKCS#1 v1.5 with those hashes
+and a modulus of 2048 to 8192 bits. Anything else is `ANCHOR_TSA_ALGORITHM_UNSUPPORTED`. An RSA key
+with an even modulus, or a public exponent that is even, 1 or over 8 bytes, is
+`ANCHOR_TSA_TOKEN_MALFORMED`.
 
 Trust roots are the reader's: `{"rekor_public_keys": ["<PEM or base64 SPKI>"], "tsa_roots":
 ["<PEM or base64 certificate>"]}`. A proof with no pinned root is `NOT_CHECKED`, never `VERIFIED`.
@@ -456,7 +459,7 @@ Returned by `verify_receipt` (permit, outcome or trace), `verify_trace` and
 | `phase` | `AUTHORIZED` (permit, unexpired, no outcome), `EXPIRED`, `COMPLETED`, `BLOCKED`, or `UNKNOWN` when the document could not be parsed |
 | `decision`, `execution_status`, `output_degraded` | What the signed documents say; `null` unless `status` is `VERIFIED`, so a reader never takes a value from a document that failed |
 | `checks.authorization`, `checks.execution` | `VERIFIED`, `FAILED` or `NOT_PRESENT`; bundles add `checks.checkpoint` and `checks.anchor` (`VERIFIED`, `FAILED`, `NOT_CHECKED`, or `NOT_PRESENT` when no anchor was given) |
-| `anchor` | With an anchor: the result of 4.3 without `schema_version` and `not_checked`, which joins `trust.not_checked`. A failed anchor makes the whole verdict `INVALID` |
+| `anchor` | With an anchor: the result of 4.3 without `schema_version` and `not_checked`, whose entries join `trust.not_checked`, except `CHECKPOINT_SIGNATURE`, which a bundle does check. A failed anchor makes the whole verdict `INVALID` |
 | `errors` | Codes, possibly with a parenthesised path; empty when `VERIFIED` |
 | `trust.mode` | `PINNED_GATE_KEY` (independent) or `DATABASE_SELF_ATTESTED` (not independent; the CLI warns) |
 | `trust.independent` | `true` only with a pinned key |
