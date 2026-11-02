@@ -2,9 +2,9 @@
   "schema_version": "tempus.conformance-evidence.v1",
   "gate_public_key_file": "gate_public_key.txt",
   "executor_public_key_file": "executor_public_key.txt",
-  "action_id": "c661edebec8c2e64803cf59d72b846d2728142116073acf0222c31c76b5f94a9",
-  "bundle_digest": "32c3082bcba2d3bfebc1b7069e8b4ba67774fa28b0589d9b3bc5873d923a9a70",
-  "verify_url": "https://tempus-protocol.github.io/tempus-ddb/verify.html#bundle=32c3082bcba2d3bfebc1b7069e8b4ba67774fa28b0589d9b3bc5873d923a9a70",
+  "action_id": "e195f76ae957d4c0c1ed8238cead176d4197dc7d0a32f6596fdf8c97de6c16c5",
+  "bundle_digest": "311c95f444c452a3fa9781dd985a0c404fd3cf669c7e029a94fa204d55fd9017",
+  "verify_url": "https://tempus-protocol.github.io/tempus-ddb/verify.html#bundle=311c95f444c452a3fa9781dd985a0c404fd3cf669c7e029a94fa204d55fd9017",
   "cases": [
     {
       "file": "bundle.json",
@@ -89,6 +89,46 @@
         "execution": "NOT_PRESENT"
       },
       "errors": []
+    },
+    {
+      "file": "permit_rules_allowed.json",
+      "note": "A policy with a rule on the amount, and an amount under it. The verifier runs the rule again.",
+      "kind": "authorization",
+      "status": "VERIFIED",
+      "checks": {
+        "authorization": "VERIFIED"
+      },
+      "errors": []
+    },
+    {
+      "file": "permit_rules_denied.json",
+      "note": "The same policy and an amount over it: a true record of a refusal (POLICY_RULES_DENIED) is valid evidence.",
+      "kind": "authorization",
+      "status": "VERIFIED",
+      "checks": {
+        "authorization": "VERIFIED"
+      },
+      "errors": []
+    },
+    {
+      "file": "permit_rules_forged_allow.json",
+      "note": "The gate's own key signs an ALLOWED that its own rule denies. Every signature is good; only running the rule again finds the lie.",
+      "kind": "authorization",
+      "status": "INVALID",
+      "errors_include": [
+        "AUTHORIZATION_POLICY_DECISION_MISMATCH",
+        "AUTHORIZATION_DECISION_NOT_REPRODUCIBLE",
+        "AUTHORIZATION_REASON_CODES_NOT_REPRODUCIBLE"
+      ]
+    },
+    {
+      "file": "permit_rules_edited.json",
+      "note": "The limit in the rule edited after the gate signed the policy.",
+      "kind": "authorization",
+      "status": "INVALID",
+      "errors_include": [
+        "TEMPUS_POLICY_DIGEST_MISMATCH"
+      ]
     }
   ],
   "anchor_bundle": "bundle.json",

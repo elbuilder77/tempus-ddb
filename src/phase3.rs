@@ -323,7 +323,7 @@ pub(crate) fn install_policy(
     validate_policy_spec(spec)?;
     let policy_version = required_policy_string(spec, "policy_version")?;
     let tenant_id = required_policy_string(spec, "tenant_id")?;
-    let body = json!({
+    let mut body = json!({
         "schema_version": POLICY_BUNDLE_SCHEMA,
         "policy_version": policy_version,
         "tenant_id": tenant_id,
@@ -331,6 +331,10 @@ pub(crate) fn install_policy(
         "issued_at": issued_at,
         "signer": signer.identity().to_json(),
     });
+    // Absent stays absent, so a policy without rules keeps the bytes and digests it had.
+    if let Some(rules) = spec.get("rules") {
+        body["rules"] = rules.clone();
+    }
     let policy_digest = digest_json(&body)?;
     let signature = signer
         .sign(&hex::decode(&policy_digest).map_err(|e| format!("Invalid policy digest: {e}"))?)?;
@@ -759,6 +763,19 @@ pub(crate) fn evaluate_policy(
             reasons.push("POLICY_MONEY_DENIED".to_string());
         }
     }
+    if let Some(rules) = bundle.get("rules") {
+        let mut context = json!({"intent": intent, "ttl_seconds": ttl_seconds});
+        // Absent when there is none: `missing` only sees an absent key, and a null is not one.
+        if let Some(money) = intent.get("money").filter(|value| !value.is_null()) {
+            let (amount_minor, currency) = validate_money(money)?;
+            context["money"] = json!({"amount_minor": amount_minor, "currency": currency});
+        }
+        reasons.extend(
+            crate::rules::evaluate(rules, &context)
+                .into_iter()
+                .map(str::to_string),
+        );
+    }
     if reasons.is_empty() {
         reasons.push("POLICY_ALLOWED".to_string());
     }
@@ -837,6 +854,9 @@ fn validate_policy_spec(spec: &Value) -> Result<(), String> {
                     .to_string(),
             );
         }
+    }
+    if let Some(rules) = spec.get("rules") {
+        crate::rules::validate(rules)?;
     }
     Ok(())
 }

@@ -40,6 +40,7 @@ mod der;
 mod events;
 mod phase3;
 mod rekor;
+mod rules;
 mod sigverify;
 mod strict_json;
 mod tsa;

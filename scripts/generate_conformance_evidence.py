@@ -19,6 +19,7 @@ Usage (from the repository root, with the package installed):
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import sys
@@ -225,6 +226,111 @@ def main() -> int:
             "The permit alone (tempus.authorization-result.v1), as the agent received it.",
         )
 
+        # --- rules: the same gate key, a policy whose rule looks at the amount ---
+        rules_gate = TempusDDB(str(tmp_path / "rules.db"), str(gate_key))
+        rules_gate.register_agent(gate_id, "conformance-gate", json.dumps({"can_delegate": True}))
+        rules_gate.register_agent(agent_id, "conformance-agent", "{}")
+        rules_gate.install_policy(
+            json.dumps(
+                {
+                    "schema_version": "tempus.policy-bundle.v1",
+                    "policy_version": "conformance-rules-v1",
+                    "tenant_id": "conformance",
+                    "constraints": {
+                        "allowed_action_types": ["purchase"],
+                        "allowed_resources": ["*"],
+                        "allowed_executors": ["*"],
+                        "max_ttl_seconds": 3_600,
+                        "max_input_bytes": 4_096,
+                    },
+                    "rules": [
+                        {
+                            "id": "purchase.under-ten",
+                            "logic": {"<=": [{"var": "money.amount_minor"}, 1000]},
+                        }
+                    ],
+                }
+            )
+        )
+
+        def rules_permit(key, amount):
+            return json.loads(
+                rules_gate.request_action(
+                    json.dumps(
+                        {
+                            **intent,
+                            "idempotency_key": key,
+                            "money": {**intent["money"], "amount": amount},
+                        }
+                    ),
+                    str(agent_key),
+                    3_600,
+                )
+            )
+
+        allowed_by_rule = rules_permit("conformance-rules-allowed", "9.99")
+        assert allowed_by_rule["authorization"]["decision"] == "ALLOWED", allowed_by_rule
+        emit(
+            "permit_rules_allowed",
+            allowed_by_rule,
+            {
+                "kind": "authorization",
+                "status": "VERIFIED",
+                "checks": {"authorization": "VERIFIED"},
+                "errors": [],
+            },
+            "A policy with a rule on the amount, and an amount under it. The verifier runs the "
+            "rule again.",
+        )
+        denied_by_rule = rules_permit("conformance-rules-denied", "25.00")
+        assert denied_by_rule["authorization"]["reason_codes"] == ["POLICY_RULES_DENIED"], (
+            denied_by_rule
+        )
+        emit(
+            "permit_rules_denied",
+            denied_by_rule,
+            {
+                "kind": "authorization",
+                "status": "VERIFIED",
+                "checks": {"authorization": "VERIFIED"},
+                "errors": [],
+            },
+            "The same policy and an amount over it: a true record of a refusal "
+            "(POLICY_RULES_DENIED) is valid evidence.",
+        )
+        forged_allow = copy.deepcopy(denied_by_rule)
+        forged_allow["authorization"]["decision"] = "ALLOWED"
+        forged_allow["authorization"]["reason_codes"] = ["IDENTITY_VERIFIED", "POLICY_ALLOWED"]
+        resign_authorization(forged_allow, gate_key)
+        emit(
+            "permit_rules_forged_allow",
+            forged_allow,
+            {
+                "kind": "authorization",
+                "status": "INVALID",
+                "errors_include": [
+                    "AUTHORIZATION_POLICY_DECISION_MISMATCH",
+                    "AUTHORIZATION_DECISION_NOT_REPRODUCIBLE",
+                    "AUTHORIZATION_REASON_CODES_NOT_REPRODUCIBLE",
+                ],
+            },
+            "The gate's own key signs an ALLOWED that its own rule denies. Every signature is "
+            "good; only running the rule again finds the lie.",
+        )
+        edited_rule = copy.deepcopy(denied_by_rule)
+        edited_rule["policy_bundle"]["rules"][0]["logic"]["<="][1] = 1_000_000
+        emit(
+            "permit_rules_edited",
+            edited_rule,
+            {
+                "kind": "authorization",
+                "status": "INVALID",
+                "errors_include": ["TEMPUS_POLICY_DIGEST_MISMATCH"],
+            },
+            "The limit in the rule edited after the gate signed the policy.",
+        )
+        del rules_gate  # release the SQLite handle before the directory is removed
+
         # --- anchors: the bundle's checkpoint, proved to a log and a timestamp authority ---
         authority = Authority()
         checkpoint = bundle["checkpoint"]["checkpoint"]
@@ -378,6 +484,21 @@ def main() -> int:
         del gate  # release the SQLite handle before the directory is removed
     print(f"wrote {len(cases)} cases to {OUT.relative_to(ROOT)} and site/data/evidence")
     return 0
+
+
+def resign_authorization(permit: dict, gate_key: Path) -> None:
+    """Sign what the permit now says with the gate's own key, as a lying gate would."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    authorization = permit["authorization"]
+    authorization.pop("authorization_id")
+    authorization.pop("gate_signature")
+    canonical = json.dumps(authorization, separators=(",", ":"), sort_keys=True)
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    private_key = json.loads(gate_key.read_text(encoding="utf-8"))["private_key"]
+    key = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(private_key))
+    authorization["authorization_id"] = digest
+    authorization["gate_signature"] = key.sign(bytes.fromhex(digest)).hex()
 
 
 def check_anchor(case: dict, alone: dict, in_bundle: dict) -> None:

@@ -347,6 +347,7 @@ struct TstInfo<'a> {
     imprint_algorithm: &'a [u8],
     imprint: &'a [u8],
     gen_time: i64,
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))] // read when a token is first obtained
     nonce: Option<&'a [u8]>,
 }
 

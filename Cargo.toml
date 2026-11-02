@@ -29,6 +29,8 @@ base64 = "0.23"
 crypto-bigint = { version = "0.7", default-features = false, features = ["alloc"] }
 p256 = { version = "0.14", default-features = false, features = ["ecdsa"] }
 p384 = { version = "0.14", default-features = false, features = ["ecdsa"] }
+# The one policy evaluator: rules in a policy bundle (see src/rules.rs).
+jsonlogic-fast = "0.1.7"
 
 # The gate (SQLite, signing keys, Python bindings, dev CLI). None of this is in the
 # browser verifier, which is the wasm32 build of the same crate.
