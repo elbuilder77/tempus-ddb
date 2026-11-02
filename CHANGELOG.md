@@ -35,8 +35,8 @@ operator or Tempus. Policies gain rules, and amounts gain real decimals.
   `reads_currency_exponents = True`. Other adapters are called as before. `PaymentActionAdapter`
   sets it, and called directly without them it refuses an intent holding only `amount_minor`
   instead of reading it in hundredths.
-- The browser verifier grows by about 400 KB (403,735 to about 807,000 bytes, 149 KB to about
-  282 KB compressed) for the signature, DER and rules code.
+- The browser verifier grows by about 400 KB (about 405 KB to about 813 KB, or 149 KB to about
+  285 KB compressed) for the signature, DER and rules code.
 
 ## [Unreleased] — 0.7.0 "Guard"
 
