@@ -244,7 +244,10 @@ A rule sees `intent` (the signed intent), `ttl_seconds` and `money` (`amount_min
 absent when the intent has none). Each must evaluate to exactly `true`. A false rule blocks with
 `POLICY_RULES_DENIED`. A value of the wrong type, read on a branch the rule reaches, blocks with
 `POLICY_RULES_ERROR`. The second usually means a rule that needs a guard, such as the `missing`
-above.
+above. It also means the rules read more than 64 MiB in one evaluation, and then the rules after
+that point fail too. A field a rule names is paid for at every node that rule evaluates, so inputs
+of kilobytes never reach this and a field of megabytes read many times can: bound it with
+`max_input_bytes`, or read it less.
 
 Only `and or if ! !! === !== < <= > >= in missing var + - * min max` exist, on integers and strings.
 Floats and JavaScript coercion are refused: `{"<": ["10", 9]}` does not install, and `1 == "1"`
@@ -846,15 +849,16 @@ tempus verify-bundle --bundle evidence.json --gate-public-key <64-hex|file> \
 - **Retrying:** `anchor create` merges into an existing `--out` for the same checkpoint. A backend
   that fails leaves the other's proof written and exits non-zero, so the next cron run only fills
   the gap.
-- **Checking what you created:** with no roots, `anchor create` can only check that a proof is about
-  this checkpoint, and a token's own signature. Run `anchor verify` with your roots afterwards. A
+- **Checking what you created:** with no roots, `anchor create` can only check what a proof says of
+  itself: that it is about this checkpoint, the log entry's inclusion path, and a token's signature,
+  attributes and signer certificate. Run `anchor verify` with your roots afterwards. A
   proof with a bad log signature, say from a wrong `--rekor-url`, stays in the file until you remove
   it.
 - **Roots are yours to pin.** With none, the anchor reads `NOT_CHECKED` and claims no date.
   `--require-anchor` then fails. One failed proof makes the verdict `INVALID`, however good the
   others are.
 - **The date:** the latest the proof allows. For a timestamp token that is its time plus its stated
-  accuracy, rounded up to a whole second.
+  accuracy, each rounded up to a whole second first.
 - **What it does not show:** that the checkpoint covers everything, or that no later checkpoint
   exists. `anchor verify` dates these bytes and does not check that a gate signed them
   (`CHECKPOINT_SIGNATURE` in its `not_checked`). `verify-bundle` checks both. Revocation of the timestamp certificates cannot be checked offline, and the verifier

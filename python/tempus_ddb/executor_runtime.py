@@ -335,7 +335,8 @@ class ActionAdapter(Protocol):
         """Execute the external effect with isolated credentials and return ExecutionResult.
 
         An adapter that reads money amounts sets ``reads_currency_exponents = True`` and also
-        takes ``currency_exponents``: the signed policy's decimals per currency, or None.
+        takes ``currency_exponents``: the signed policy's decimals per currency, empty when it
+        names none.
         """
         ...
 
@@ -417,7 +418,7 @@ class ExecutorRuntime:
                     if isinstance(constraints, dict)
                     else None
                 )
-                result = adapter.execute_action(intent, currency_exponents=exponents)
+                result = adapter.execute_action(intent, currency_exponents=exponents or {})
             else:
                 result = adapter.execute_action(intent)
             status = (

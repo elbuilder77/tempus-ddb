@@ -528,10 +528,15 @@ def _apply_requirements(parsed, args):
     return parsed
 
 
+_EPOCH = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
+
+
 def _format_micros(micros):
-    moment = datetime.datetime.fromtimestamp(
-        micros // 1_000_000, tz=datetime.timezone.utc
-    )
+    """A proof's date as text. A token can state a year no calendar here can hold."""
+    try:
+        moment = _EPOCH + datetime.timedelta(microseconds=micros)
+    except OverflowError:
+        return f"{micros} microseconds after 1970"
     return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -541,16 +546,18 @@ def _parse_date_micros(text):
     if len(raw) == 8 and raw.isdigit():
         raw = f"{raw[:4]}-{raw[4:6]}-{raw[6:]}"
     try:
-        if len(raw) == 10:
-            day = datetime.date.fromisoformat(raw)
-            moment = datetime.datetime.combine(day, datetime.time.max)
-        else:
+        # Any spelling of a date alone, week dates included, is the end of that day.
+        moment = datetime.datetime.combine(
+            datetime.date.fromisoformat(raw), datetime.time.max
+        )
+    except ValueError:
+        try:
             moment = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise ValueError(f"--anchored-before: not an ISO 8601 date: {text}") from exc
+        except ValueError as exc:
+            raise ValueError(f"--anchored-before: not an ISO 8601 date: {text}") from exc
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=datetime.timezone.utc)
-    since = moment - datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
+    since = moment - _EPOCH
     return (since.days * 86_400 + since.seconds) * 1_000_000 + since.microseconds
 
 

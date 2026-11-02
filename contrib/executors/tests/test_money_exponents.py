@@ -19,6 +19,7 @@ from tempus_executors.payment import (
 )
 from test_money_amount_parity import _gate_verdict
 from test_money_binding import TENANT, RecordingTransport, _intent
+from test_money_binding import _world as _plain_world
 
 EXPONENTS = {"JPY": 0, "KWD": 3, "XTS": 8}
 LIMIT = 1000
@@ -223,3 +224,33 @@ def test_a_wrapper_that_does_not_pass_the_exponents_cannot_spell_minor_units():
     }
     with pytest.raises(PaymentExecutorError, match="currency_exponents"):
         adapter.execute_action(intent)
+    # Forwarding what it was not given says the same thing.
+    with pytest.raises(PaymentExecutorError, match="currency_exponents"):
+        adapter.execute_action(intent, None)
+
+
+def test_an_empty_amount_does_not_pass_for_a_stated_one():
+    adapter = PaymentActionAdapter(transport=RecordingTransport())
+    money = {"amount": None, "amount_minor": 1234, "asset": "KWD", "beneficiary": "acct"}
+    with pytest.raises(PaymentExecutorError, match="decimal string"):
+        adapter.execute_action({"action_type": "payment.charge", "money": money})
+
+
+def test_a_policy_naming_no_currency_still_lets_the_runtime_spell_minor_units():
+    money = {"amount_minor": 1234, "asset": "USD", "beneficiary": "b"}
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        gate, gate_id, agent_id, exec_db, exec_key, agent_key = _plain_world(tmpdir)
+        permit = gate.request_action(_intent(agent_id, "k-plain", money), agent_key, 30)
+        assert json.loads(permit)["authorization"]["decision"] == "ALLOWED", permit
+        transport = RecordingTransport()
+        runtime = ExecutorRuntime(
+            executor_db=exec_db,
+            executor_keyfile=exec_key,
+            trusted_gate_id=gate_id,
+            trusted_tenant_id=TENANT,
+        )
+        result = json.loads(
+            runtime.execute_permit(permit, PaymentActionAdapter(transport=transport))
+        )
+    assert result["status"] == "SUCCEEDED", result
+    assert transport.calls == [("12.34", "USD", "b")]

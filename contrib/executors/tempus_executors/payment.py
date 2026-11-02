@@ -76,8 +76,6 @@ _DIGIT_WORDS = ("no", "one", "two", "three", "four", "five", "six", "seven", "ei
 # Same rule as the gate: an exact 3-letter code.
 _EXACT_CURRENCY = re.compile(r"[A-Z]{3}")
 _U64_MAX = 2**64 - 1
-# Told apart from None, which says the signed policy names no currency.
-_EXPONENTS_NOT_PASSED: Any = object()
 
 
 def _exponent(currency_exponents: Optional[Dict[str, Any]], asset: str) -> int:
@@ -130,7 +128,8 @@ def canonical_money(
     names of one field. The policy evaluates whichever is present, so an executor must not
     send one while the policy evaluated the other: if both spellings are present they must
     agree, and a field of the wrong type is an error, never skipped. `currency_exponents`
-    is the signed policy's: a currency it does not name has two decimals.
+    is the signed policy's: a currency it does not name has two decimals, and so does every
+    currency when it is left out, so pass it whenever the policy is at hand.
     """
     names = {}
     for field in ("currency", "asset"):
@@ -153,7 +152,7 @@ def canonical_money(
 
     text = money.get("amount")
     minor = money.get("amount_minor")
-    if text is not None and not isinstance(text, str):
+    if "amount" in money and not isinstance(text, str):
         raise PaymentExecutorError("money.amount must be a decimal string")
     if "amount_minor" in money and (
         isinstance(minor, bool)
@@ -291,7 +290,7 @@ class PaymentActionAdapter:
     def execute_action(
         self,
         intent: Dict[str, Any],
-        currency_exponents: Optional[Dict[str, Any]] = _EXPONENTS_NOT_PASSED,
+        currency_exponents: Optional[Dict[str, Any]] = None,
     ) -> ExecutionResult:
         # Enforce presence of universal money envelope
         money = intent.get("money")
@@ -300,16 +299,15 @@ class PaymentActionAdapter:
                 "Financial action requires a valid 'money' envelope in intent"
             )
 
-        if currency_exponents is _EXPONENTS_NOT_PASSED:
-            # An adapter wrapping this one, without `reads_currency_exponents`. An amount as
-            # written is sent as written, but spelling minor units takes the decimals the policy
-            # evaluated: guessing two could pay ten times too much.
-            if "amount" not in money:
-                raise PaymentExecutorError(
-                    "an amount_minor intent needs the signed policy's currency_exponents: "
-                    "set reads_currency_exponents on the adapter calling this one and pass them"
-                )
-            currency_exponents = None
+        # The runtime always passes a dict, empty when the policy names no currency. None is an
+        # adapter wrapping this one, without `reads_currency_exponents`. An amount as written is
+        # sent as written, but spelling minor units takes the decimals the policy evaluated:
+        # guessing two could pay ten times too much.
+        if currency_exponents is None and "amount" not in money:
+            raise PaymentExecutorError(
+                "an amount_minor intent needs the signed policy's currency_exponents: "
+                "set reads_currency_exponents on the adapter calling this one and pass them"
+            )
 
         # The same reading the policy evaluated, never a field it skipped.
         amount, asset = canonical_money(money, currency_exponents)

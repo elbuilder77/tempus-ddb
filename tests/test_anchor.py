@@ -20,6 +20,7 @@ from tempus_ddb import (
     verify_bundle,
 )
 from tempus_ddb.anchor import AnchorError, checkpoint_from_text
+from tempus_ddb.cli import _format_micros
 from test_cli import run_cli
 
 _spec = importlib.util.spec_from_file_location(
@@ -478,7 +479,11 @@ def test_cli_verify_bundle_with_requirements(world, authority, tmp_path):
 
     # A bare date means the end of that day, however it is written.
     today = dt.datetime.fromtimestamp(at, tz=UTC)
-    for spelled in (today.strftime("%Y-%m-%d"), today.strftime("%Y%m%d")):
+    spellings = [today.strftime("%Y-%m-%d"), today.strftime("%Y%m%d")]
+    if sys.version_info >= (3, 11):  # Python reads week dates from here on.
+        year, week, day = today.isocalendar()
+        spellings += [f"{year}-W{week:02}-{day}", f"{year}W{week:02}{day}"]
+    for spelled in spellings:
         code, _, _ = _verify_bundle_cli(
             world, tmp_path, *with_anchor, "--anchored-before", spelled
         )
@@ -617,6 +622,7 @@ def test_the_date_is_the_latest_the_token_allows(world):
         ({"gen_time": moment, "accuracy": seq(tlv(0x80, b"\x01\xf4"))}, 1),  # 500 ms
         ({"gen_time": moment, "accuracy": seq(tlv(0x81, b"\x01"))}, 1),  # 1 microsecond
         ({"gen_time": moment, "accuracy": seq(integer(2), tlv(0x80, b"\x01"))}, 3),
+        ({"gen_time": moment, "accuracy": seq(integer(2**32 - 1))}, 2**32 - 1),
         ({"gen_time_text": f"{text}.9Z"}, 1),
         ({"gen_time_text": f"{text}.9Z", "accuracy": seq(integer(1))}, 2),
     ):
@@ -632,6 +638,8 @@ def test_the_date_is_the_latest_the_token_allows(world):
         pytest.param(b"\x80\x02\x03\xe8", id="1000 milliseconds"),
         pytest.param(b"\x81\x02\x03\xe8", id="1000 microseconds"),
         pytest.param(b"\x02\x06\x01\x00\x00\x00\x00\x00", id="seconds out of range"),
+        pytest.param(b"\x02\x05\x7f\xff\xff\xff\xff", id="seconds past 32 bits"),
+        pytest.param(b"\x02\x02\x00\x01", id="seconds not minimal"),
         pytest.param(b"\x04\x01\x01", id="a field that does not belong"),
     ],
 )
@@ -834,3 +842,11 @@ def test_a_bundle_with_a_token_that_fails_is_invalid(world):
     assert result["status"] == "INVALID"
     assert result["checks"]["anchor"] == "FAILED"
     assert "ANCHOR_TSA_ATTRIBUTES_INVALID" in result["errors"]
+
+
+def test_a_date_no_calendar_can_hold_is_still_reported():
+    assert _format_micros(0) == "1970-01-01T00:00:00Z"
+    # The C library stops at the year 3000 on Windows.
+    assert _format_micros(32_503_680_000_000_000) == "3000-01-01T00:00:00Z"
+    # A token under a pinned root can say so, and that is no reason to crash after verifying it.
+    assert _format_micros(10**18) == f"{10**18} microseconds after 1970"

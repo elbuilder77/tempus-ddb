@@ -21,7 +21,8 @@ const MAX_DEPTH: usize = 16;
 const MAX_ID_BYTES: usize = 64;
 /// How many bytes of rule and context one evaluation may have read. The evaluator parses both
 /// for every node it is asked about, so this, and not the size of the rules, is what a hostile
-/// bundle could otherwise make its reader pay. Far above a real policy, which reads a few fields.
+/// bundle could otherwise make its reader pay. A field a rule names is paid for at every node
+/// that rule evaluates, so kilobytes never reach this, and megabytes read many times can.
 const MAX_WORK_BYTES: usize = 64 * 1024 * 1024;
 /// Above this an IEEE double cannot tell neighbouring integers apart.
 const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
@@ -280,10 +281,19 @@ impl Work {
         Work(Cell::new(MAX_WORK_BYTES))
     }
 
+    /// Once there is not enough left there is nothing left, so every later rule fails too and
+    /// the reasons do not depend on which rule happened to be cheap.
     fn spend(&self, bytes: usize) -> Result<(), Fault> {
-        let left = self.0.get().checked_sub(bytes).ok_or(Fault)?;
-        self.0.set(left);
-        Ok(())
+        match self.0.get().checked_sub(bytes) {
+            Some(left) => {
+                self.0.set(left);
+                Ok(())
+            }
+            None => {
+                self.0.set(0);
+                Err(Fault)
+            }
+        }
     }
 
     /// Pay for a value about to be copied. It stops as soon as the work runs out, so a value
@@ -820,7 +830,13 @@ mod tests {
         assert_eq!(evaluate(&rules(read.clone()), &large), Vec::<&str>::new());
         // Read over and over, the work runs out and the rule fails.
         let reads = json!({"and": vec![read; 80]});
-        assert_eq!(evaluate(&rules(reads), &large), vec![RULES_ERROR]);
+        assert_eq!(evaluate(&rules(reads.clone()), &large), vec![RULES_ERROR]);
+        // After that every rule fails, whatever it says and however little it costs.
+        let then_denies = json!([
+            {"id": "large", "logic": reads},
+            {"id": "denies", "logic": {"===": [1, 2]}},
+        ]);
+        assert_eq!(evaluate(&then_denies, &large), vec![RULES_ERROR]);
         // Copying it over and over runs out the same way, before it is parsed even once.
         let copies = json!({"!": {"missing": vec![json!("intent.input.blob"); 200]}});
         assert_eq!(evaluate(&rules(copies), &large), vec![RULES_ERROR]);
