@@ -332,7 +332,11 @@ class ActionAdapter(Protocol):
         ...
 
     def execute_action(self, intent: Dict[str, Any]) -> ExecutionResult:
-        """Execute the external effect with isolated credentials and return ExecutionResult."""
+        """Execute the external effect with isolated credentials and return ExecutionResult.
+
+        An adapter that reads money amounts sets ``reads_currency_exponents = True`` and also
+        takes ``currency_exponents``: the signed policy's decimals per currency, or None.
+        """
         ...
 
 
@@ -405,7 +409,17 @@ class ExecutorRuntime:
                 )
 
             # 2. Invoke adapter with isolated credentials
-            result = adapter.execute_action(intent)
+            if getattr(adapter, "reads_currency_exponents", False):
+                policy = permit_data.get("policy_bundle")
+                constraints = policy.get("constraints") if isinstance(policy, dict) else None
+                exponents = (
+                    constraints.get("currency_exponents")
+                    if isinstance(constraints, dict)
+                    else None
+                )
+                result = adapter.execute_action(intent, currency_exponents=exponents)
+            else:
+                result = adapter.execute_action(intent)
             status = (
                 result.status if result.status in {"SUCCEEDED", "FAILED"} else "FAILED"
             )

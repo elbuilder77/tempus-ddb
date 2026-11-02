@@ -1,4 +1,5 @@
-//! Rules in a policy, from the install to a reader who trusts nothing but the gate's key.
+//! Rules and per-currency decimals in a policy, from the install to a reader who trusts
+//! nothing but the gate's key.
 
 use _tempus_ddb::{generate_keypair, verify_bundle, verify_receipt, SqliteStorage};
 use ed25519_dalek::{Signer, SigningKey};
@@ -461,4 +462,202 @@ fn a_rule_reads_the_signed_intent_and_the_ttl() {
         json!(["POLICY_RULES_DENIED"])
     );
     assert_eq!(world.read(&permit)["status"], "VERIFIED");
+}
+
+// ---- decimals per currency ----------------------------------------------------------------
+
+impl World {
+    fn install_money(&self, currencies: Value, exponents: Value, rules: Option<Value>) {
+        let mut policy = spec(rules.unwrap_or_else(|| json!([])));
+        policy["constraints"]["allowed_currencies"] = currencies;
+        policy["constraints"]["currency_exponents"] = exponents;
+        policy["constraints"]["max_money_amount_minor"] = json!(1000);
+        self.storage.install_policy(&policy.to_string()).unwrap();
+    }
+
+    fn pay(&self, key: &str, money: Value) -> Result<Value, String> {
+        let mut intent = self.intent(key);
+        intent["money"] = money;
+        self.storage
+            .request_action(&intent.to_string(), self.agent_key.to_str().unwrap(), 60)
+            .map(|text| parse(&text))
+    }
+}
+
+#[test]
+fn a_limit_is_in_the_minor_units_of_the_currency_and_a_reader_agrees() {
+    let world = World::new();
+    world.install_money(
+        json!(["JPY", "KWD", "USD"]),
+        json!({"JPY": 0, "KWD": 3}),
+        None,
+    );
+    for (index, (amount, asset, allowed)) in [
+        ("1000", "JPY", true),
+        ("1001", "JPY", false),
+        ("1.000", "KWD", true),
+        ("1.001", "KWD", false),
+        ("10.00", "USD", true),
+        ("10.01", "USD", false),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let money = json!({"amount": amount, "asset": asset, "beneficiary": "vendor"});
+        let permit = world.pay(&format!("limit-{index}"), money).unwrap();
+        let expected = if allowed {
+            json!(["IDENTITY_VERIFIED", "POLICY_ALLOWED"])
+        } else {
+            json!(["POLICY_MONEY_DENIED"])
+        };
+        assert_eq!(
+            permit["authorization"]["reason_codes"], expected,
+            "{amount} {asset}"
+        );
+        let read = world.read(&permit);
+        assert_eq!(read["status"], "VERIFIED", "{amount} {asset}: {read}");
+    }
+}
+
+#[test]
+fn an_amount_with_too_many_decimals_for_its_currency_is_refused_before_anything_is_signed() {
+    let world = World::new();
+    world.install_money(json!(["JPY", "KWD"]), json!({"JPY": 0, "KWD": 3}), None);
+    for (amount, asset, why) in [
+        ("5.5", "JPY", "no fractional digits"),
+        ("5.00", "JPY", "no fractional digits"),
+        ("1.2345", "KWD", "at most three"),
+    ] {
+        let money = json!({"amount": amount, "asset": asset});
+        let error = world.pay("decimals", money).unwrap_err();
+        assert!(error.contains(why), "{amount} {asset}: {error}");
+    }
+    let money = json!({"amount": "500", "amount_minor": 50_000, "asset": "JPY"});
+    let error = world.pay("two-spellings", money).unwrap_err();
+    assert!(error.contains("disagree"), "{error}");
+}
+
+#[test]
+fn a_rule_sees_the_minor_units_of_the_currency() {
+    let world = World::new();
+    world.install_money(
+        json!(["JPY", "KWD"]),
+        json!({"JPY": 0, "KWD": 3}),
+        Some(json!([
+            {"id": "exact", "logic": {"or": [
+                {"===": [{"var": "money.amount_minor"}, 500]},
+                {"===": [{"var": "money.amount_minor"}, 999]},
+            ]}}
+        ])),
+    );
+    let yen = world
+        .pay("yen", json!({"amount": "500", "asset": "JPY"}))
+        .unwrap();
+    assert_eq!(yen["authorization"]["decision"], "ALLOWED", "{yen}");
+    assert_eq!(world.read(&yen)["status"], "VERIFIED");
+    let dinar = world
+        .pay("dinar", json!({"amount": "0.999", "asset": "KWD"}))
+        .unwrap();
+    assert_eq!(dinar["authorization"]["decision"], "ALLOWED", "{dinar}");
+    let more = world
+        .pay("more", json!({"amount": "0.998", "asset": "KWD"}))
+        .unwrap();
+    assert_eq!(
+        more["authorization"]["reason_codes"],
+        json!(["POLICY_RULES_DENIED"])
+    );
+}
+
+#[test]
+fn installing_yen_without_its_decimals_is_refused_and_stating_two_keeps_the_old_reading() {
+    let world = World::new();
+    let mut policy = spec(json!([]));
+    policy["constraints"]["allowed_currencies"] = json!(["JPY"]);
+    let error = world
+        .storage
+        .install_policy(&policy.to_string())
+        .unwrap_err();
+    assert!(
+        error.contains("TEMPUS_POLICY_INVALID") && error.contains("JPY"),
+        "{error}"
+    );
+
+    world.install_money(json!(["JPY"]), json!({"JPY": 2}), None);
+    // 50 000 minor units against a limit of 1000.
+    let permit = world
+        .pay("old", json!({"amount": "500", "asset": "JPY"}))
+        .unwrap();
+    assert_eq!(
+        permit["authorization"]["reason_codes"],
+        json!(["POLICY_MONEY_DENIED"])
+    );
+    assert_eq!(world.read(&permit)["status"], "VERIFIED");
+}
+
+#[test]
+fn editing_the_decimals_after_signing_is_detected() {
+    let world = World::new();
+    world.install_money(json!(["JPY"]), json!({"JPY": 0}), None);
+    let mut permit = world
+        .pay("edited", json!({"amount": "500", "asset": "JPY"}))
+        .unwrap();
+    permit["policy_bundle"]["constraints"]["currency_exponents"]["JPY"] = json!(2);
+    assert_eq!(world.read(&permit)["status"], "INVALID");
+}
+
+#[test]
+fn a_gate_cannot_change_the_decimals_without_a_reader_noticing_the_decision() {
+    let world = World::new();
+    world.install_money(json!(["JPY"]), json!({"JPY": 0}), None);
+    let mut permit = world
+        .pay("resigned", json!({"amount": "500", "asset": "JPY"}))
+        .unwrap();
+    assert_eq!(permit["authorization"]["decision"], "ALLOWED");
+    world.resign_policy(&mut permit, |bundle| {
+        bundle["constraints"]["currency_exponents"]["JPY"] = json!(2);
+    });
+    let read = world.read(&permit);
+    assert_eq!(read["status"], "INVALID");
+    assert!(
+        errors(&read).contains(&"AUTHORIZATION_POLICY_DECISION_MISMATCH".to_string()),
+        "{read}"
+    );
+}
+
+#[test]
+fn a_reader_refuses_a_signed_policy_with_a_hostile_exponent_without_panicking() {
+    let world = World::new();
+    world.install_money(json!(["JPY"]), json!({"JPY": 0}), None);
+    for (index, exponent) in [json!(9), json!(4_000_000_000u64), json!(-1), json!("0")]
+        .into_iter()
+        .enumerate()
+    {
+        let mut permit = world
+            .pay(
+                &format!("hostile-{index}"),
+                json!({"amount": "500", "asset": "JPY"}),
+            )
+            .unwrap();
+        world.resign_policy(&mut permit, |bundle| {
+            bundle["constraints"]["currency_exponents"]["JPY"] = exponent;
+        });
+        assert_eq!(world.read(&permit)["status"], "INVALID");
+    }
+}
+
+#[test]
+fn with_no_policy_installed_an_amount_is_not_read_at_all() {
+    let world = World::new();
+    let permit = world
+        .pay("no-policy", json!({"amount": "1.234", "asset": "KWD"}))
+        .unwrap();
+    assert_eq!(
+        permit["authorization"]["reason_codes"],
+        json!(["POLICY_NOT_INSTALLED"])
+    );
+    assert_eq!(world.read(&permit)["status"], "VERIFIED");
+    let error = world
+        .pay("no-policy-bad", json!({"amount": "1.", "asset": "KWD"}))
+        .unwrap_err();
+    assert!(error.contains("TEMPUS_INVALID_CONTRACT"), "{error}");
 }

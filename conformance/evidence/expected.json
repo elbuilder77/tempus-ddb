@@ -2,9 +2,9 @@
   "schema_version": "tempus.conformance-evidence.v1",
   "gate_public_key_file": "gate_public_key.txt",
   "executor_public_key_file": "executor_public_key.txt",
-  "action_id": "e195f76ae957d4c0c1ed8238cead176d4197dc7d0a32f6596fdf8c97de6c16c5",
-  "bundle_digest": "311c95f444c452a3fa9781dd985a0c404fd3cf669c7e029a94fa204d55fd9017",
-  "verify_url": "https://tempus-protocol.github.io/tempus-ddb/verify.html#bundle=311c95f444c452a3fa9781dd985a0c404fd3cf669c7e029a94fa204d55fd9017",
+  "action_id": "8ae9426e052a3e66acb41900362a2b757032f0a372eb982d82dc9bc1129cac97",
+  "bundle_digest": "b06eecf8e59575fff148a7041475f5007eccb2043bccc92dd3481b6891baca73",
+  "verify_url": "https://tempus-protocol.github.io/tempus-ddb/verify.html#bundle=b06eecf8e59575fff148a7041475f5007eccb2043bccc92dd3481b6891baca73",
   "cases": [
     {
       "file": "bundle.json",
@@ -93,6 +93,16 @@
     {
       "file": "permit_rules_allowed.json",
       "note": "A policy with a rule on the amount, and an amount under it. The verifier runs the rule again.",
+      "kind": "authorization",
+      "status": "VERIFIED",
+      "checks": {
+        "authorization": "VERIFIED"
+      },
+      "errors": []
+    },
+    {
+      "file": "permit_rules_yen.json",
+      "note": "500 yen under the same limit of 1000 minor units: the signed policy says JPY has no decimals. Read in hundredths it would be 50000, over the limit, and this permit would not reproduce.",
       "kind": "authorization",
       "status": "VERIFIED",
       "checks": {

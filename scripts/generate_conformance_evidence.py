@@ -242,6 +242,7 @@ def main() -> int:
                         "allowed_executors": ["*"],
                         "max_ttl_seconds": 3_600,
                         "max_input_bytes": 4_096,
+                        "currency_exponents": {"JPY": 0},
                     },
                     "rules": [
                         {
@@ -253,14 +254,14 @@ def main() -> int:
             )
         )
 
-        def rules_permit(key, amount):
+        def rules_permit(key, amount, asset="USD"):
             return json.loads(
                 rules_gate.request_action(
                     json.dumps(
                         {
                             **intent,
                             "idempotency_key": key,
-                            "money": {**intent["money"], "amount": amount},
+                            "money": {**intent["money"], "amount": amount, "asset": asset},
                         }
                     ),
                     str(agent_key),
@@ -281,6 +282,21 @@ def main() -> int:
             },
             "A policy with a rule on the amount, and an amount under it. The verifier runs the "
             "rule again.",
+        )
+        yen = rules_permit("conformance-rules-yen", "500", "JPY")
+        assert yen["authorization"]["decision"] == "ALLOWED", yen
+        emit(
+            "permit_rules_yen",
+            yen,
+            {
+                "kind": "authorization",
+                "status": "VERIFIED",
+                "checks": {"authorization": "VERIFIED"},
+                "errors": [],
+            },
+            "500 yen under the same limit of 1000 minor units: the signed policy says JPY has no "
+            "decimals. Read in hundredths it would be 50000, over the limit, and this permit "
+            "would not reproduce.",
         )
         denied_by_rule = rules_permit("conformance-rules-denied", "25.00")
         assert denied_by_rule["authorization"]["reason_codes"] == ["POLICY_RULES_DENIED"], (
